@@ -89,6 +89,8 @@ private:
     virtual void download_added(Hub::DownloadState download) override;
     virtual void download_updated(Hub::DownloadState download) override;
     virtual void download_started_by_view(u64 download_id, u64 view_id) override;
+    virtual void notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon, u64 view_id, String origin) override;
+    virtual void notification_close(u64 id) override;
     virtual void app_set_clipboard_text(String text, WebView::Application::ClipboardType type) override;
     virtual void app_read_clipboard_text(u64 request_id, WebView::Application::ClipboardType type) override;
 

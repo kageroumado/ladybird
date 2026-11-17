@@ -57,6 +57,7 @@ struct NotificationDataAbi {
     FlatPtr body;
     FlatPtr tag;
     FlatPtr language;
+    FlatPtr icon_url;
     u8 direction;
     bool has_silent;
     bool silent;
@@ -84,6 +85,7 @@ void web_notifications_api_unregister_notification(HTML::Window*, u64 notificati
 NotificationIcon* web_notifications_api_fetch_icon(Notification*, HTML::EnvironmentSettingsObject*, URL::FFI::RustUrl const*);
 void web_notifications_api_stop_icon_fetch(NotificationIcon*);
 void web_notifications_api_show_notification(HTML::Window*, u64 notification_id, NotificationDataAbi const*, NotificationIcon*);
+bool web_notifications_api_embedder_decides(HTML::Window*);
 void web_notifications_api_request_close_notification(HTML::Window*, u64 notification_id);
 void web_notifications_api_abandon_notification(HTML::Window*, u64 notification_id);
 void web_notifications_api_handle_notification_click(HTML::Window*, u64 notification_id, bool into_focus);
@@ -240,6 +242,11 @@ void web_notifications_api_stop_icon_fetch(NotificationIcon* icon)
     icon->m_fetch_controller = nullptr;
 }
 
+bool web_notifications_api_embedder_decides(HTML::Window* window)
+{
+    return window->page().embedder_decides_notifications();
+}
+
 void web_notifications_api_show_notification(HTML::Window* window, u64 notification_id, NotificationDataAbi const* data, NotificationIcon* icon)
 {
     NotificationData notification_data {
@@ -247,6 +254,7 @@ void web_notifications_api_show_notification(HTML::Window* window, u64 notificat
         .body = Utf16String::from_raw(data->body),
         .tag = Utf16String::from_raw(data->tag),
         .language = Utf16String::from_raw(data->language),
+        .icon_url = Utf16String::from_raw(data->icon_url),
         .direction = static_cast<Bindings::NotificationDirection>(data->direction),
         .silent = data->has_silent ? Optional<bool> { data->silent } : Optional<bool> {},
         .require_interaction = data->require_interaction,

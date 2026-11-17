@@ -2742,9 +2742,9 @@ void PageClient::finish_evaluating_script(u64 request_id, JS::Realm& realm, JS::
     client().async_did_evaluate_script(m_id, request_id, text.has_value() ? text->to_utf8() : "null"_string, {});
 }
 
-void PageClient::page_did_post_embedder_message(u64 message_id, Optional<String> const& world, String const& channel, String const& body_json, URL::URL const& frame_url, bool is_main_frame)
+void PageClient::page_did_post_embedder_message(u64 message_id, Optional<String> const& world, String const& channel, String const& body_json, Web::HTML::CrossProcessId document_id)
 {
-    client().async_did_post_embedder_message(m_id, message_id, world, channel, body_json, frame_url, is_main_frame);
+    client().async_did_post_embedder_message(m_id, message_id, world, channel, body_json, document_id);
 }
 
 void PageClient::evaluate_script(u64 request_id, String const& source, Optional<String> const& world, bool user_gesture)

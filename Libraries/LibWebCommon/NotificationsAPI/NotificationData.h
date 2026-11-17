@@ -22,6 +22,8 @@ struct NotificationData {
     Utf16String body;
     Utf16String tag;
     Utf16String language;
+    // The icon's URL as the page gave it, resolved; empty without one.
+    Utf16String icon_url;
     Bindings::NotificationDirection direction { Bindings::NotificationDirection::Auto };
     Optional<bool> silent;
     bool require_interaction { false };

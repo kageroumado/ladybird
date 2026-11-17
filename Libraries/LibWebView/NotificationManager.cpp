@@ -109,6 +109,8 @@ void NotificationManager::show(WebContentPage& page, u64 page_notification_id, U
     backend().show(PlatformNotification {
         .id = id,
         .page_id = page.id(),
+        .view_id = page.view().view_id(),
+        .origin = origin.serialize(),
         .replaces = replaces,
         .data = move(data),
         .attribution = attribution_for_origin(origin),

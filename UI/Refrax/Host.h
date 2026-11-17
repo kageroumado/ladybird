@@ -121,6 +121,12 @@ public:
 
     void emit_event(Page const&, StringView name, JsonObject fields);
     void emit_request(Page&, PendingRequest, StringView name, JsonObject fields);
+
+    // A page of the Hub showed a notification, which Refrax hears of under an id of this host's. False when no page
+    // of Refrax's shows that view.
+    bool show_notification(HubLink&, u64 hub_notification_id, u64 view_id, Web::NotificationsAPI::NotificationData const&, String const& origin);
+    // The page closed its notification, or showed another in its place.
+    void page_closed_notification(HubLink&, u64 hub_notification_id);
     void send(StringView name, JsonObject fields) { m_wire->send(name, move(fields)); }
 
     // The contract's events that follow from a view's state, sent when the state changes what they say.
@@ -200,6 +206,16 @@ private:
     String m_scripts_json;
     // Refrax's per-site settings, as the JSON object of its policy.
     String m_site_settings_json;
+    // Every notification decision Refrax holds, as the JSON object of its policy.
+    String m_notification_policy_json;
+    // The notifications Refrax shows, by the id it knows each by. A Hub numbers its own from one.
+    struct ShownNotification {
+        NonnullRefPtr<HubLink> hub;
+        u64 hub_notification_id { 0 };
+        u64 page { 0 };
+    };
+    HashMap<String, ShownNotification> m_notifications;
+    u64 m_next_notification_id { 1 };
     u64 m_next_request_id { 1 };
     u64 m_next_input_id { 1 };
     u64 m_next_download_id { 1 };

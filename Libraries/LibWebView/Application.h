@@ -119,6 +119,10 @@ public:
     void set_embedder_scripts(String scripts_json);
     // What the embedder lets sites do, as the JSON object of the engine contract's siteSettings policy.
     void set_embedder_site_settings(String settings_json);
+    // Every notification decision the embedder holds, as the JSON object of the engine contract's notifications
+    // policy. From the first one on, the embedder's lists are the only source of notification permission.
+    void set_embedder_notification_policy(StringView policy_json);
+    bool embedder_decides_notifications() const { return m_embedder_decides_notifications; }
     // Whether one of the embedder's scripts in that world, the page's own when none is named, is granted the channel.
     bool embedder_grants_channel(Optional<String> const& world, StringView channel) const;
     ErrorOr<void> reload_site_compatibility_data();
@@ -703,6 +707,7 @@ private:
     bool m_blocks_pop_ups { true };
     String m_embedder_scripts_json;
     String m_embedder_site_settings_json;
+    bool m_embedder_decides_notifications { false };
     struct EmbedderChannel {
         Optional<String> world;
         String channel;

@@ -1321,7 +1321,7 @@ void WebContentPage::did_cut_selected_text(u64 request_id, ByteString selection)
     view().did_cut_selected_text({}, request_id, move(selection));
 }
 
-void WebContentPage::did_post_embedder_message(u64 message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame)
+void WebContentPage::did_post_embedder_message(u64 message_id, Optional<String> world, String channel, String body_json, Web::HTML::CrossProcessId document_id)
 {
     // NB: The answer goes back to the page that asked, which can have closed by then.
     auto reply = [page = NonnullRefPtr<WebContentPage>(*this), message_id](Optional<String> value_json, Optional<String> error) {
@@ -1334,15 +1334,22 @@ void WebContentPage::did_post_embedder_message(u64 message_id, Optional<String> 
     }
 
     // NB: The renderer may be compromised, and names the world and channel itself. Only a pair the embedder granted
-    //     reaches it. Which frame posted is this process's to say where it knows: the page showing the tab hosts the
-    //     top-level document, whose URL the view holds. A child frame's URL is the renderer's word, which the
-    //     embedder treats as it treats the message's body.
+    //     reaches it. Which frame posted is this process's to say: the message names a document, which counts only
+    //     while this page hosts it, and the frame and its URL are that document's as this process knows them.
     if (!Application::the().embedder_grants_channel(world, channel)) {
         reply({}, "The embedder granted no such channel"_string);
         return;
     }
-    is_main_frame = is_main_frame && displays_tab();
-    if (is_main_frame)
+    auto document = hosted_document_with_id(document_id);
+    if (!document) {
+        reply({}, "The document that posted is gone"_string);
+        return;
+    }
+    auto is_main_frame = document->is_top_level();
+    // NB: The view follows the tab's document through its fragment and history changes, which the document's record
+    //     doesn't. Its URL is this document's only while both name one origin.
+    auto frame_url = document->creation_url();
+    if (is_main_frame && view().url().origin().is_same_origin(document->origin()))
         frame_url = view().url();
 
     view().on_embedder_message({ move(world), move(channel), move(body_json), move(frame_url), is_main_frame }, move(reply));
@@ -1935,6 +1942,11 @@ void WebContentPage::did_request_permission(u64 request_id, Web::HTML::CrossProc
                 if (auto result = page->client().grant_audio_capture_to_file(page->view().url()); result.is_error())
                     warnln("Unable to grant audio capture: {}", result.error());
             }
+        } else if (permission_name == Web::Permissions::PermissionName::Notifications && Application::the().embedder_decides_notifications()) {
+            // The embedder's answer serves this request alone: its lists hold every decision, and it sends them
+            // changed before it answers when the answer is one to keep.
+            auto allowed = outcome == Web::Permissions::PromptOutcome::AllowAlways || outcome == Web::Permissions::PromptOutcome::AllowOnce;
+            state = allowed ? Web::Permissions::EffectiveState::Granted : Web::Permissions::EffectiveState::Denied;
         } else {
             auto& manager = *page->view().session().permission_manager;
 

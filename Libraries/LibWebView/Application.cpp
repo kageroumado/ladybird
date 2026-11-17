@@ -2919,6 +2919,45 @@ void Application::set_embedder_site_settings(String settings_json)
     });
 }
 
+void Application::set_embedder_notification_policy(StringView policy_json)
+{
+    auto json = JsonValue::from_string(policy_json);
+    if (json.is_error() || !json.value().is_object())
+        return;
+    auto const& policy = json.value().as_object();
+    if (!m_embedder_decides_notifications) {
+        m_embedder_decides_notifications = true;
+        ViewImplementation::for_each_view([&](ViewImplementation& view) {
+            if (view.has_traversable()) {
+                view.traversable().for_each_hosting_page([&](WebContentPage& page) {
+                    page.async_set_embedder_decides_notifications(true);
+                });
+            }
+            return IterationDecision::Continue;
+        });
+    }
+
+    auto name = Web::Permissions::PermissionName::Notifications;
+    auto& manager = *default_session().permission_manager;
+    for (auto const& site : manager.site_decisions(name))
+        manager.set_decision(name, site.origin, {});
+
+    auto decide = [&](StringView key, PermissionDecision decision) {
+        auto origins = policy.get_array(key);
+        if (!origins.has_value())
+            return;
+        origins->for_each([&](JsonValue const& value) {
+            if (!value.is_string())
+                return;
+            if (auto url = URL::Parser::basic_parse(value.as_string()); url.has_value() && !url->origin().is_opaque())
+                manager.set_decision(name, url->origin(), decision);
+        });
+    };
+    decide("granted"sv, PermissionDecision::Allow);
+    decide("denied"sv, PermissionDecision::Block);
+    manager.set_global_default(name, policy.get_bool("asksByDefault"sv).value_or(true) ? Web::Permissions::EffectiveState::Prompt : Web::Permissions::EffectiveState::Denied);
+}
+
 bool Application::embedder_grants_channel(Optional<String> const& world, StringView channel) const
 {
     return m_embedder_channels.contains([&](auto const& granted) { return granted.world == world && granted.channel == channel; });
@@ -2996,6 +3035,10 @@ void Application::apply_view_options(Badge<ViewImplementation>, ViewImplementati
         page.async_set_embedder_scripts(m_embedder_scripts_json);
     if (!m_embedder_site_settings_json.is_empty())
         page.async_set_embedder_site_settings(m_embedder_site_settings_json);
+    if (m_embedder_decides_notifications)
+        page.async_set_embedder_decides_notifications(true);
+    if (view.media_suspended())
+        page.async_set_media_suspended(true);
 
     page.async_debug_request("set-line-box-borders"sv, m_shows_line_box_borders ? "on"sv : "off"sv);
     page.async_debug_request("set-caret-hit-test-debug-overlay"sv, m_shows_caret_hit_test_debug_overlay ? "on"sv : "off"sv);

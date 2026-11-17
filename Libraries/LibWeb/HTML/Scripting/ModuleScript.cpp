@@ -8,7 +8,9 @@
 #include <LibJS/Runtime/ModuleRequest.h>
 #include <LibJS/ScriptCompilation.h>
 #include <LibWeb/CSS/StyleSheetState.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
+#include <LibWeb/HTML/Window.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
 #include <LibWeb/HTML/Scripting/Fetching.h>
 #include <LibWeb/HTML/Scripting/ModuleScript.h>
@@ -278,6 +280,10 @@ GC::Ptr<WebIDL::Promise> ModuleScript::run(PreventErrorReporting prevent_error_r
     if (can_run_script(settings) == RunScriptDecision::DoNotRun) {
         return WebIDL::create_resolved_promise(realm, JS::js_undefined());
     }
+
+    // AD-HOC: An embedder can keep a site's own scripts from running. See ClassicScript::run().
+    if (auto const* window = window_from_global_object(settings.global_object()); window && !embedder_allows_page_scripts(window->associated_document()))
+        return WebIDL::create_resolved_promise(realm, JS::js_undefined());
 
     // FIXME: 3. Record module script execution start time given script.
 

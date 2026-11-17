@@ -604,6 +604,22 @@ void HubLink::view_selected_text(u64, u64, Optional<ByteString> text)
     m_host.send("clipboardWrite"sv, move(fields));
 }
 
+void HubLink::notification_show(u64 id, u64, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String, Optional<Gfx::ShareableBitmap>, u64 view_id, String origin)
+{
+    if (replaces.has_value())
+        m_host.page_closed_notification(*this, *replaces);
+    if (m_host.show_notification(*this, id, view_id, data, origin))
+        async_notification_shown(id);
+    else
+        async_notification_failed(id);
+}
+
+void HubLink::notification_close(u64 id)
+{
+    m_host.page_closed_notification(*this, id);
+    async_notification_closed(id, false);
+}
+
 void HubLink::app_set_clipboard_text(String text, WebView::Application::ClipboardType)
 {
     JsonObject fields;

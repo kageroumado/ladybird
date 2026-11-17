@@ -85,7 +85,7 @@ void NotificationBackendInUI::show(WebView::PlatformNotification const& notifica
     if (notification.icon)
         icon = notification.icon->to_shareable_bitmap();
     if (auto* ui = ConnectionFromUI::the())
-        ui->async_notification_show(notification.id, notification.page_id.value(), notification.replaces, notification.data, notification.attribution, move(icon));
+        ui->async_notification_show(notification.id, notification.page_id.value(), notification.replaces, notification.data, notification.attribution, move(icon), notification.view_id, notification.origin);
 }
 
 void NotificationBackendInUI::close(u64 id)

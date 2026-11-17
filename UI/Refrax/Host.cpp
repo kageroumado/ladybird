@@ -285,6 +285,8 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
         hub->async_set_embedder_scripts(m_scripts_json);
     if (!m_site_settings_json.is_empty())
         hub->async_set_embedder_site_settings(m_site_settings_json);
+    // Refrax holds every notification decision, from before its first policy on.
+    hub->async_set_embedder_notification_policy(m_notification_policy_json.is_empty() ? "{}"_string : m_notification_policy_json);
     hub->async_set_download_staging_directory(download_staging_directory(key));
     m_hubs.set(key, hub);
     return hub;
@@ -421,6 +423,8 @@ void Host::handle_command(Page& page, JsonObject const& command)
             auto wants_muted = fields.get_bool("muted"sv).value_or(false);
             if (wants_muted != (page.state.page_mute_state == Web::HTML::MuteState::Muted))
                 hub.async_view_toggle_page_mute_state(view_id);
+        } else if (name == "setMediaSuspended"sv) {
+            hub.async_view_set_media_suspended(view_id, fields.get_bool("suspended"sv).value_or(false));
         } else if (name == "find"sv) {
             if (auto query = fields.get_object("query"sv); query.has_value())
                 start_finding(page, *query);
@@ -433,12 +437,15 @@ void Host::handle_command(Page& page, JsonObject const& command)
         } else if (name == "setVisibility"sv) {
             auto hidden = fields.get_string("visibility"sv).value_or({}) == "hidden"sv;
             hub.async_view_set_system_visibility_state(view_id, hidden ? Web::HTML::VisibilityState::Hidden : Web::HTML::VisibilityState::Visible);
-        } else if (name == "notificationClicked"sv) {
-            if (auto id = fields.get_u64("id"sv); id.has_value())
-                hub.async_notification_clicked(*id);
-        } else if (name == "notificationClosed"sv) {
-            if (auto id = fields.get_u64("id"sv); id.has_value())
-                hub.async_notification_closed(*id, true);
+        } else if (name == "notificationClicked"sv || name == "notificationClosed"sv) {
+            // NB: The notification is gone from the screen either way; a click reaches the page before its close.
+            auto id = fields.get_string("id"sv);
+            auto shown = id.has_value() ? m_notifications.take(*id) : Optional<ShownNotification> {};
+            if (shown.has_value()) {
+                if (name == "notificationClicked"sv)
+                    shown->hub->async_notification_clicked(shown->hub_notification_id);
+                shown->hub->async_notification_closed(shown->hub_notification_id, true);
+            }
         }
     });
 }
@@ -731,6 +738,53 @@ void Host::handle_policy(JsonObject const& update)
         m_site_settings_json = policy.has_value() ? policy->serialized() : "{}"_string;
         for (auto& hub : m_hubs)
             hub.value->async_set_embedder_site_settings(m_site_settings_json);
+    }
+
+    if (auto notifications = update.get_object("notifications"sv); notifications.has_value()) {
+        auto policy = notifications->get_object("policy"sv);
+        m_notification_policy_json = policy.has_value() ? policy->serialized() : "{}"_string;
+        for (auto& hub : m_hubs)
+            hub.value->async_set_embedder_notification_policy(m_notification_policy_json);
+    }
+}
+
+bool Host::show_notification(HubLink& hub, u64 hub_notification_id, u64 view_id, Web::NotificationsAPI::NotificationData const& data, String const& origin)
+{
+    auto* page = page_for_view(hub, view_id);
+    if (!page)
+        return false;
+
+    auto id = String::number(m_next_notification_id++);
+    m_notifications.set(id, { hub, hub_notification_id, page->id });
+
+    JsonObject notification;
+    notification.set("id"sv, id);
+    notification.set("origin"sv, origin);
+    notification.set("title"sv, data.title.to_utf8());
+    notification.set("body"sv, data.body.to_utf8());
+    if (!data.tag.is_empty())
+        notification.set("tag"sv, data.tag.to_utf8());
+    if (!data.icon_url.is_empty())
+        notification.set("iconURL"sv, data.icon_url.to_utf8());
+    notification.set("isSilent"sv, data.silent.value_or(false));
+    JsonObject fields;
+    fields.set("notification"sv, move(notification));
+    emit_event(*page, "notificationShown"sv, move(fields));
+    return true;
+}
+
+void Host::page_closed_notification(HubLink& hub, u64 hub_notification_id)
+{
+    for (auto& entry : m_notifications) {
+        if (entry.value.hub.ptr() != &hub || entry.value.hub_notification_id != hub_notification_id)
+            continue;
+        if (auto page = m_pages.get(entry.value.page); page.has_value()) {
+            JsonObject fields;
+            fields.set("id"sv, entry.key);
+            emit_event(**page, "notificationClosed"sv, move(fields));
+        }
+        m_notifications.remove(entry.key);
+        return;
     }
 }
 

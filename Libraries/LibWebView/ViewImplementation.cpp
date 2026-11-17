@@ -903,6 +903,16 @@ void ViewImplementation::set_zoom_kept_by_embedder(double zoom_level)
     set_zoom(zoom_level);
 }
 
+void ViewImplementation::set_media_suspended(bool suspended)
+{
+    m_media_suspended = suspended;
+    if (!has_traversable())
+        return;
+    traversable().for_each_hosting_page([&](WebContentPage& page) {
+        page.async_set_media_suspended(suspended);
+    });
+}
+
 void ViewImplementation::reset_zoom()
 {
     set_zoom(1.0);

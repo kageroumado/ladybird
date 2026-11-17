@@ -54,6 +54,7 @@ unsafe extern "C" {
         icon: *mut c_void,
     );
     fn web_notifications_api_request_close_notification(window: *mut c_void, notification_id: u64);
+    fn web_notifications_api_embedder_decides(window: *mut c_void) -> bool;
     fn web_notifications_api_abandon_notification(window: *mut c_void, notification_id: u64);
     fn web_notifications_api_handle_notification_click(window: *mut c_void, notification_id: u64, into_focus: bool);
 }
@@ -172,6 +173,7 @@ struct NotificationDataAbi {
     body: usize,
     tag: usize,
     language: usize,
+    icon_url: usize,
     direction: u8,
     has_silent: bool,
     silent: bool,
@@ -638,11 +640,16 @@ impl Notification {
         //     Here, the notification joins this page's part of the list and is sent off for display.
         this.state.set(State::Showing);
         let notification = &this.notification;
+        let icon_url = notification
+            .icon_url
+            .as_ref()
+            .map_or_else(|| Utf16String::from_utf8(""), |url| Utf16String::from_utf8(url.serialize(ExcludeFragment::No)));
         let data = NotificationDataAbi {
             title: notification.title.raw_identity(),
             body: notification.body.raw_identity(),
             tag: notification.tag.raw_identity(),
             language: notification.language.raw_identity(),
+            icon_url: icon_url.raw_identity(),
             direction: notification.direction as u8,
             has_silent: notification.silent_preference.is_some(),
             silent: notification.silent_preference.unwrap_or(false),
@@ -877,8 +884,17 @@ impl Notification {
             PermissionName::Notifications,
             &settings,
             request,
-            |vm, request, _| {
-                Self::settle_permission_request(vm, request);
+            |vm, request, answer| {
+                // AD-HOC: An embedder that keeps every notification decision itself stores none of a prompt's
+                //         answers in the page's store, and its prompts are never dismissed, so the answer is the
+                //         request's result.
+                let window = window_from_global_object(request.global);
+                // SAFETY: The window is live.
+                if window.is_some_and(|window| unsafe { web_notifications_api_embedder_decides(window.as_ptr()) }) {
+                    Self::settle_permission_request_with(vm, request, answer);
+                } else {
+                    Self::settle_permission_request(vm, request);
+                }
             },
         );
 
@@ -891,6 +907,10 @@ impl Notification {
         //         for it, and the page would then take a shrug for a refusal. The state the store holds once the
         //         answer is in is reported instead: "default" after a dismissal, so the page may ask again later.
         let permission_state = get_the_notifications_permission_state(&request.settings);
+        Self::settle_permission_request_with(vm, request, permission_state);
+    }
+
+    fn settle_permission_request_with(vm: &Vm, request: PermissionRequest, permission_state: PermissionState) {
         let global = request.global;
         queue_a_global_task(
             vm,

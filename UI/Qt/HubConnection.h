@@ -96,7 +96,7 @@ private:
     virtual void pip_hide(u64 view_id) override;
     virtual void pip_set_video_size(u64 view_id, Gfx::IntSize video_size) override;
     virtual void pip_close(u64 view_id) override;
-    virtual void notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon) override;
+    virtual void notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon, u64, String) override;
     virtual void notification_close(u64 id) override;
     virtual void geolocation_start() override;
     virtual void geolocation_request_position(u64 id) override;

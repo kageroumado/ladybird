@@ -396,7 +396,7 @@ void HubConnection::pip_close(u64 view_id)
     Application::the().close_picture_in_picture_window(view_id);
 }
 
-void HubConnection::notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon)
+void HubConnection::notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon, u64 view_id, String origin)
 {
     RefPtr<Gfx::Bitmap const> icon_bitmap;
     if (icon.has_value() && icon->is_valid())
@@ -404,6 +404,8 @@ void HubConnection::notification_show(u64 id, u64 page_id, Optional<u64> replace
     Application::the().notification_backend().show({
         .id = id,
         .page_id = Web::PageId { page_id },
+        .view_id = view_id,
+        .origin = move(origin),
         .replaces = replaces,
         .data = move(data),
         .attribution = move(attribution),

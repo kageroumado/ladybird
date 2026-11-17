@@ -66,7 +66,7 @@ pub(crate) struct AudioContext {
     context: BaseAudioContext,
     base_latency: f64,
     output_latency: f64,
-    allowed_to_start: bool,
+    allowed_to_start: Cell<bool>,
     pending_resume_promises: GcRefCell<Vec<WebIdlPromise>>,
     suspended_by_user: Cell<bool>,
     #[gc(untraced)]
@@ -103,6 +103,7 @@ impl GetTheParent for AudioContext {
 
 unsafe extern "C" {
     fn web_audio_output_factory_create(global: *mut c_void) -> FfiSharedCppObject;
+    fn web_audio_context_is_allowed_to_start(global: *mut c_void) -> bool;
     fn web_audio_realtime_context_performance_now(global: *mut c_void) -> f64;
 }
 
@@ -152,12 +153,15 @@ impl AudioContext {
             BaseAudioContext::verify_sample_rate(sample_rate)?;
         }
 
+        // SAFETY: The global is live.
+        let allowed_to_start = unsafe { web_audio_context_is_allowed_to_start(global.as_ptr()) };
+
         // 1. Let context be a new AudioContext object.
         let context = allocate(cx.vm(), |defer_gc| Self {
             context: BaseAudioContext::new(defer_gc, global, 0.),
             base_latency: 0.,
             output_latency: 0.,
-            allowed_to_start: true,
+            allowed_to_start: Cell::new(allowed_to_start),
             pending_resume_promises: GcRefCell::new(Vec::new()),
             suspended_by_user: Cell::new(false),
             renderer: RefCell::new(None),
@@ -209,26 +213,11 @@ impl AudioContext {
         }
 
         // 11. If context is allowed to start, send a control message to start processing.
-        // FIXME: The context is currently always allowed to start; this should be gated on sticky activation.
-        if context.allowed_to_start {
+        if context.allowed_to_start.get() {
             // FIXME: 1. Let document be the current settings object's relevant global object's associated Document.
             // 2. Attempt to acquire system resources to use a following audio output device based on [[sink ID]] for
             //    rendering.
-            let factory = unsafe { web_audio_output_factory_create(context.context.global_event_target().as_ptr()) };
-            let renderer = RealtimeAudioRenderer::new(
-                Arc::clone(context.context.control_message_queue()),
-                context.context.destination_value().parent().node_id(),
-                context.context.sample_rate_value(),
-                BaseAudioContext::RENDER_QUANTUM_SIZE as usize,
-                SharedCppObject {
-                    pointer: factory.pointer,
-                    retain: factory.retain,
-                    release: factory.release,
-                },
-            );
-            *context.renderer.borrow_mut() = Some(Arc::clone(&renderer));
-            context.set_renderer_client(cx.vm());
-            renderer.start_rendering();
+            context.acquire_renderer(cx.vm());
 
             // 2. Set this [[rendering thread state]] to running on the AudioContext.
             context.context.set_rendering_state(AudioContextState::Running);
@@ -247,6 +236,26 @@ impl AudioContext {
 
         // 12. Return context.
         Ok(context)
+    }
+
+    // Makes the renderer that plays this context's graph, and starts it.
+    fn acquire_renderer(&self, vm: &Vm) {
+        // SAFETY: The context's global is live.
+        let factory = unsafe { web_audio_output_factory_create(self.context.global_event_target().as_ptr()) };
+        let renderer = RealtimeAudioRenderer::new(
+            Arc::clone(self.context.control_message_queue()),
+            self.context.destination_value().parent().node_id(),
+            self.context.sample_rate_value(),
+            BaseAudioContext::RENDER_QUANTUM_SIZE as usize,
+            SharedCppObject {
+                pointer: factory.pointer,
+                retain: factory.retain,
+                release: factory.release,
+            },
+        );
+        *self.renderer.borrow_mut() = Some(Arc::clone(&renderer));
+        self.set_renderer_client(vm);
+        renderer.start_rendering();
     }
 
     pub(crate) fn document_became_inactive(&self) {
@@ -339,10 +348,17 @@ impl AudioContext {
         // FIXME: 5.2. Reject the promise with InvalidStateError, abort these steps, returning promise.
 
         // 6. If the context is not allowed to start, append promise to [[pending promises]] and [[pending resume promises]] and abort these steps, returning promise.
-        if !self.allowed_to_start {
-            self.context.pending_promises.borrow_mut(cx.vm()).push(promise);
-            self.pending_resume_promises.borrow_mut(cx.vm()).push(promise);
-            return Ok(());
+        // NB: A context that wasn't allowed to start when it was made is, once the user has interacted with its
+        //     document; it gets its renderer then.
+        if !self.allowed_to_start.get() {
+            // SAFETY: The context's global is live.
+            if !unsafe { web_audio_context_is_allowed_to_start(self.context.global_event_target().as_ptr()) } {
+                self.context.pending_promises.borrow_mut(cx.vm()).push(promise);
+                self.pending_resume_promises.borrow_mut(cx.vm()).push(promise);
+                return Ok(());
+            }
+            self.allowed_to_start.set(true);
+            self.acquire_renderer(cx.vm());
         }
 
         // 7. Set the [[control thread state]] on the AudioContext to running.

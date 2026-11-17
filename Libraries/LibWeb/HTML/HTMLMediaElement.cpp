@@ -38,6 +38,7 @@
 #include <LibWeb/HTML/AudioTrack.h>
 #include <LibWeb/HTML/AudioTrackList.h>
 #include <LibWeb/HTML/AutoplaySettings.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/CORSSettingAttribute.h>
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/HTMLAudioElement.h>
@@ -3639,6 +3640,12 @@ bool HTMLMediaElement::is_allowed_to_play() const
 {
     // A media element is said to be allowed to play if the user agent and the system allow media playback in the
     // current context.
+    // AD-HOC: An embedder can suspend a page's media, and can let a site's audible media start by itself.
+    if (document().page().is_media_suspended())
+        return false;
+    if (embedder_allows_autoplay_with_sound(document()))
+        return true;
+
     // NB: We allow playback once the document has been activated by the user, with an exception for inaudible media.
     //     Gating on transient activation instead pauses audible media once the activation expires, e.g. between ads,
     //     or media in a playlist.

@@ -18,10 +18,12 @@
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/LocalNavigable.h>
 #include <LibWeb/HTML/Navigable.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/HTML/WindowOrWorkerGlobalScope.h>
+#include <LibWeb/Page/Page.h>
 #include <LibWeb/WebAudio/AudioWorklet.h>
 #include <LibWeb/WebAudio/BaseAudioContext.h>
 #include <LibWeb/WebAudio/RustFFI.h>
@@ -45,6 +47,7 @@ extern "C" JS::Object* web_audio_context_global_wrapper(DOM::EventTarget*);
 extern "C" bool web_audio_context_document_is_fully_active(DOM::EventTarget*);
 extern "C" bool web_audio_context_responsible_document_is_fully_active(DOM::EventTarget*);
 extern "C" bool web_audio_context_navigable_is_destroyed(DOM::EventTarget*);
+extern "C" bool web_audio_context_is_allowed_to_start(DOM::EventTarget*);
 extern "C" AudioWorklet* web_audio_context_get_worklet(BaseAudioContext*);
 extern "C" JS::Object* web_audio_context_wrap_worklet(JS::Realm*, AudioWorklet*);
 extern "C" void web_audio_context_decode(ReadonlyBytes, u32, GC::Cell*);
@@ -80,6 +83,20 @@ DOM::DocumentObserver* web_audio_context_observe_document(DOM::EventTarget* glob
 JS::Realm* web_audio_context_global_realm(DOM::EventTarget* global) { return &HTML::relevant_settings_object(HTML::relevant_window_or_worker_global_scope(*global)).realm(); }
 JS::Object* web_audio_context_global_wrapper(DOM::EventTarget* global) { return &HTML::relevant_global_object(HTML::relevant_window_or_worker_global_scope(*global)); }
 bool web_audio_context_document_is_fully_active(DOM::EventTarget* global) { return as<HTML::Window>(*global).associated_document().is_fully_active(); }
+// https://webaudio.github.io/web-audio-api/#allowed-to-start
+bool web_audio_context_is_allowed_to_start(DOM::EventTarget* global)
+{
+    // AD-HOC: Only an embedder that sets what sites may do holds a context back: until the user has interacted with
+    //         the document, unless it lets the site's audible media start by itself.
+    auto& window_or_worker = HTML::relevant_window_or_worker_global_scope(*global);
+    auto document = HTML::relevant_settings_object(window_or_worker).responsible_document();
+    if (!document || !document->page().has_embedder_site_settings())
+        return true;
+    if (auto window = document->window(); window && window->has_sticky_activation())
+        return true;
+    return HTML::embedder_allows_autoplay_with_sound(*document);
+}
+
 bool web_audio_context_responsible_document_is_fully_active(DOM::EventTarget* global)
 {
     auto& settings = HTML::relevant_settings_object(HTML::relevant_window_or_worker_global_scope(*global));

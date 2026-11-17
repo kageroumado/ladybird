@@ -296,6 +296,9 @@ public:
     // An embedder that keeps each tab's zoom itself sets it here. The tab then holds that zoom across navigations, and
     // the zoom saved for a site no longer applies to it.
     void set_zoom_kept_by_embedder(double zoom_level);
+    // An embedder suspends a tab's media, in every page that hosts a part of it, until it says otherwise.
+    void set_media_suspended(bool);
+    bool media_suspended() const { return m_media_suspended; }
     void reset_zoom();
     double zoom_level() const { return m_zoom_level; }
 
@@ -983,6 +986,7 @@ protected:
 
     double m_zoom_level { 1.0 };
     bool m_embedder_keeps_zoom { false };
+    bool m_media_suspended { false };
     bool m_new_web_view_request_has_user_activation { false };
     double m_device_pixel_ratio { 1.0 };
     Optional<u64> m_display_id;

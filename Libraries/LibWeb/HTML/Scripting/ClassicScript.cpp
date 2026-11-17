@@ -9,8 +9,10 @@
 #include <LibGC/Heap.h>
 #include <LibJS/ScriptCompilation.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
+#include <LibWeb/HTML/Window.h>
 #include <LibWeb/HTML/WindowOrWorkerGlobalScope.h>
 #include <LibWeb/WebIDL/DOMException.h>
 
@@ -163,6 +165,11 @@ JS::Completion ClassicScript::run(RethrowErrors rethrow_errors, GC::Ptr<JS::Envi
 
     // 2. Check if we can run script with settings. If this returns "do not run", then return NormalCompletion(empty).
     if (can_run_script(settings) == RunScriptDecision::DoNotRun)
+        return JS::normal_completion(JS::js_undefined());
+
+    // AD-HOC: Every script a page brings runs through here, whichever element, URL or timer it came from, so this is
+    //         where an embedder that keeps a site's scripts from running stops them.
+    if (auto const* window = window_from_global_object(settings.global_object()); window && !embedder_allows_page_scripts(window->associated_document()))
         return JS::normal_completion(JS::js_undefined());
 
     // FIXME: 3. Record classic script execution start time given script.

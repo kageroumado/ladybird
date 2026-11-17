@@ -251,7 +251,7 @@ endpoint HubClient
     pip_hide(u64 view_id) =|
     pip_set_video_size(u64 view_id, Gfx::IntSize video_size) =|
     pip_close(u64 view_id) =|
-    notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon) =|
+    notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon, u64 view_id, String origin) =|
     notification_close(u64 id) =|
     geolocation_start() =|
     geolocation_request_position(u64 id) =|

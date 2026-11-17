@@ -450,6 +450,11 @@ void ConnectionFromUI::set_embedder_site_settings(String settings_json)
     Application::the().set_embedder_site_settings(move(settings_json));
 }
 
+void ConnectionFromUI::set_embedder_notification_policy(String policy_json)
+{
+    Application::the().set_embedder_notification_policy(policy_json);
+}
+
 void ConnectionFromUI::set_embedder_scripts(String scripts_json)
 {
     Application::the().set_embedder_scripts(move(scripts_json));
@@ -476,6 +481,12 @@ void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String 
 void ConnectionFromUI::set_download_staging_directory(ByteString directory)
 {
     Application::the().set_download_staging_directory(move(directory));
+}
+
+void ConnectionFromUI::view_set_media_suspended(u64 view_id, bool suspended)
+{
+    if (auto* view = find_view(view_id))
+        view->set_media_suspended(suspended);
 }
 
 void ConnectionFromUI::view_set_zoom(u64 view_id, double zoom_level)

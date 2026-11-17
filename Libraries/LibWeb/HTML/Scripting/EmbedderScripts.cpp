@@ -16,6 +16,7 @@
 #include <LibJS/Runtime/Realm.h>
 #include <LibJS/Runtime/VM.h>
 #include <LibJS/Script.h>
+#include <LibURL/Parser.h>
 #include <LibWeb/Bindings/HostDefined.h>
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
@@ -239,9 +240,7 @@ static void install_message_handlers(JS::Realm& realm, Optional<String> const& w
                 pending_embedder_messages().set(message_id, { GC::make_root(promise), GC::make_root(realm), window });
 
                 auto& document = window->associated_document();
-                auto navigable = document.navigable();
-                auto is_main_frame = navigable && !navigable->parent();
-                document.page().client().page_did_post_embedder_message(message_id, world, channel, body.has_value() ? body->to_utf8() : "null"_string, document.url(), is_main_frame);
+                document.page().client().page_did_post_embedder_message(message_id, world, channel, body.has_value() ? body->to_utf8() : "null"_string, document.id());
                 return promise->promise();
             }),
             1, Utf16FlyString::from_utf8_without_validation("postMessage"sv),
@@ -341,6 +340,35 @@ JS::Completion run_script_of_embedder(Window& window, Optional<String> const& wo
     if (script.is_error())
         return JS::throw_completion(JS::SyntaxError::create(realm, script.error().first().to_utf16_string()));
     return vm.run(*script.value());
+}
+
+// The URL that names the document's site. A document is its own site's when its URL names a host. One whose URL names
+// none is the site's that its origin names (a blob: URL's, a frame's initial about:blank), or else the site's that
+// embeds it (a sandboxed frame, an about:srcdoc or data: URL's document).
+static URL::URL site_url_of(DOM::Document const& document)
+{
+    for (GC::Ptr<DOM::Document const> current = document; current;) {
+        if (current->url().host().has_value())
+            return current->url();
+        if (auto const& origin = current->origin(); !origin.is_opaque()) {
+            if (auto origin_url = URL::Parser::basic_parse(origin.serialize()); origin_url.has_value() && origin_url->host().has_value())
+                return origin_url.release_value();
+        }
+        auto navigable = current->navigable();
+        auto container = navigable ? navigable->container() : nullptr;
+        current = container ? &container->document() : nullptr;
+    }
+    return document.url();
+}
+
+bool embedder_allows_page_scripts(DOM::Document const& document)
+{
+    return document.page().page_scripts_may_run_in(site_url_of(document));
+}
+
+bool embedder_allows_autoplay_with_sound(DOM::Document const& document)
+{
+    return document.page().autoplay_with_sound_allowed_in(site_url_of(document));
 }
 
 void run_embedder_scripts(DOM::Document& document, EmbedderScript::InjectionTime injection_time)

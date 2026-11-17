@@ -251,13 +251,31 @@ public:
         struct Rule {
             String host;
             Optional<bool> page_scripts_enabled;
+            Optional<bool> autoplay_with_sound;
         };
         bool page_scripts_enabled { true };
         Vector<Rule> rules;
     };
-    void set_embedder_site_settings(EmbedderSiteSettings settings) { m_embedder_site_settings = move(settings); }
+    void set_embedder_site_settings(EmbedderSiteSettings settings)
+    {
+        m_embedder_site_settings = move(settings);
+        m_has_embedder_site_settings = true;
+    }
+    bool has_embedder_site_settings() const { return m_has_embedder_site_settings; }
     // Whether the scripts of a document at this URL may run. The embedder's own scripts run either way.
     bool page_scripts_may_run_in(URL::URL const&) const;
+    // Whether a document at this URL may start audible media before the user has interacted with it.
+    bool autoplay_with_sound_allowed_in(URL::URL const&) const;
+
+    // While the embedder suspends media, the page's media elements are paused and none may start. The ones that
+    // were playing start again when the suspension ends.
+    void set_media_suspended(bool);
+    bool is_media_suspended() const { return m_media_suspended; }
+
+    // An embedder that keeps every notification decision itself stores none of a prompt's answers here, so the
+    // answer is all a request has to report.
+    void set_embedder_decides_notifications(bool decides) { m_embedder_decides_notifications = decides; }
+    bool embedder_decides_notifications() const { return m_embedder_decides_notifications; }
 
     // The scripts the embedder runs in the page's documents.
     Vector<HTML::EmbedderScript> const& embedder_scripts() const { return m_embedder_scripts; }
@@ -603,6 +621,10 @@ private:
     bool m_should_block_pop_ups { true };
     Vector<HTML::EmbedderScript> m_embedder_scripts;
     EmbedderSiteSettings m_embedder_site_settings;
+    bool m_has_embedder_site_settings { false };
+    bool m_embedder_decides_notifications { false };
+    bool m_media_suspended { false };
+    Vector<UniqueNodeID> m_media_paused_by_suspension;
     bool m_enable_autoscroll { true };
     bool m_enable_primary_paste { true };
     u64 m_wheel_event_listener_state_generation { 0 };
@@ -890,7 +912,7 @@ public:
     virtual void page_did_leave_tooltip_area() { }
     virtual void page_did_change_favicon(Gfx::Bitmap const&) { }
     // A script posted to the embedder on one of the channels of its world, the page's own when no world is named.
-    virtual void page_did_post_embedder_message([[maybe_unused]] u64 message_id, [[maybe_unused]] Optional<String> const& world, [[maybe_unused]] String const& channel, [[maybe_unused]] String const& body_json, [[maybe_unused]] URL::URL const& frame_url, [[maybe_unused]] bool is_main_frame) { }
+    virtual void page_did_post_embedder_message([[maybe_unused]] u64 message_id, [[maybe_unused]] Optional<String> const& world, [[maybe_unused]] String const& channel, [[maybe_unused]] String const& body_json, [[maybe_unused]] HTML::CrossProcessId document_id) { }
     virtual void page_did_request_alert(Utf16String const&) { }
     virtual void page_did_request_before_unload(String const&) { }
     virtual void page_did_request_confirm(Utf16String const&) { }

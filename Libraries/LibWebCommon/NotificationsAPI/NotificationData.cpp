@@ -15,6 +15,7 @@ ErrorOr<void> IPC::encode(Encoder& encoder, Web::NotificationsAPI::NotificationD
     TRY(encoder.encode(data.body));
     TRY(encoder.encode(data.tag));
     TRY(encoder.encode(data.language));
+    TRY(encoder.encode(data.icon_url));
     TRY(encoder.encode(data.direction));
     TRY(encoder.encode(data.silent));
     TRY(encoder.encode(data.require_interaction));
@@ -30,6 +31,7 @@ ErrorOr<Web::NotificationsAPI::NotificationData> IPC::decode(Decoder& decoder)
     data.body = TRY(decoder.decode<Utf16String>());
     data.tag = TRY(decoder.decode<Utf16String>());
     data.language = TRY(decoder.decode<Utf16String>());
+    data.icon_url = TRY(decoder.decode<Utf16String>());
     data.direction = TRY(decoder.decode<Web::Bindings::NotificationDirection>());
     data.silent = TRY(decoder.decode<Optional<bool>>());
     data.require_interaction = TRY(decoder.decode<bool>());

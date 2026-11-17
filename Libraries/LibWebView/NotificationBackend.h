@@ -26,6 +26,9 @@ struct PlatformNotification {
     u64 id { 0 };
     // The page that asked for it, for a backend that keeps per-page state.
     Web::PageId page_id;
+    // The view that shows that page, and the serialized origin the notification belongs to.
+    u64 view_id { 0 };
+    String origin;
     // The notification with the same origin and tag that this one takes the place of, if any.
     Optional<u64> replaces;
     Web::NotificationsAPI::NotificationData data;

@@ -89,6 +89,14 @@ WEB_API JS::Completion run_script_of_embedder(Window&, Optional<String> const& w
 // The realm a script of the embedder runs in.
 WEB_API JS::Realm& realm_for_embedder_world(Window&, Optional<String> const& world);
 
+// Whether the embedder lets the document's site run the scripts the site brought: its script elements, its event
+// handler attributes and its javascript: URLs. The engine goes on running script for the document either way, which
+// the embedder's own scripts need.
+WEB_API bool embedder_allows_page_scripts(DOM::Document const&);
+
+// Whether the embedder lets the document's site start audible media before the user has interacted with the document.
+WEB_API bool embedder_allows_autoplay_with_sound(DOM::Document const&);
+
 // Runs the embedder's scripts that match the document and are due at this time.
 WEB_API void run_embedder_scripts(DOM::Document&, EmbedderScript::InjectionTime);
 

@@ -15,6 +15,7 @@
 #include <LibWeb/HTML/HTMLTemplateElement.h>
 #include <LibWeb/HTML/Parser/Entities.h>
 #include <LibWeb/HTML/Parser/NamedCharacterReferences.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/SVG/TagNames.h>
 #include <LibWeb/XML/XMLDocumentBuilder.h>
@@ -155,6 +156,10 @@ void XMLDocumentBuilder::element_start(Utf16FlyString const& name, Vector<XML::L
     } else {
         MUST(m_current_node->append_child(node));
     }
+
+    // AD-HOC: The embedder's document-start scripts run once the document has its root element, as in an HTML document.
+    if (m_document->document_element() == node.ptr())
+        HTML::run_embedder_scripts(m_document, HTML::EmbedderScript::InjectionTime::DocumentStart);
 
     for (auto const& attribute : attributes) {
         if (attribute.name == "xmlns"sv || attribute.name.starts_with("xmlns:"sv)) {

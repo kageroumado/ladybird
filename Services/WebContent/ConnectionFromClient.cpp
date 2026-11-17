@@ -3713,11 +3713,23 @@ void ConnectionFromClient::set_embedder_site_settings(Web::PageId page_id, Strin
                 auto host = rule.as_object().get_string("host"sv);
                 if (!host.has_value())
                     return;
-                settings.rules.append({ *host, rule.as_object().get_bool("javaScriptEnabled"sv) });
+                settings.rules.append({ *host, rule.as_object().get_bool("javaScriptEnabled"sv), rule.as_object().get_bool("autoplayWithSound"sv) });
             });
         }
     }
     page->page().set_embedder_site_settings(move(settings));
+}
+
+void ConnectionFromClient::set_embedder_decides_notifications(Web::PageId page_id, bool decides)
+{
+    if (auto page = this->page(page_id); page.has_value())
+        page->page().set_embedder_decides_notifications(decides);
+}
+
+void ConnectionFromClient::set_media_suspended(Web::PageId page_id, bool suspended)
+{
+    if (auto page = this->page(page_id); page.has_value())
+        page->page().set_media_suspended(suspended);
 }
 
 void ConnectionFromClient::embedder_message_reply(Web::PageId, u64 message_id, Optional<String> value_json, Optional<String> error)

@@ -2241,25 +2241,62 @@ void Page::clear_selection()
     }
 }
 
-bool Page::page_scripts_may_run_in(URL::URL const& url) const
+// The decision of the rule with the longest host that covers the URL's and decides this, if any does.
+template<typename Decision>
+static Optional<bool> embedder_site_decision(Page::EmbedderSiteSettings const& settings, URL::URL const& url, Decision decision_of)
 {
     // NB: A document with no host, such as a frame's initial empty one, is under no site's rule.
     if (!url.host().has_value())
-        return m_embedder_site_settings.page_scripts_enabled;
+        return {};
     auto host = url.serialized_host().to_byte_string();
     Optional<bool> decision;
     size_t longest_host = 0;
-    for (auto const& rule : m_embedder_site_settings.rules) {
-        if (!rule.page_scripts_enabled.has_value() || rule.host.is_empty())
+    for (auto const& rule : settings.rules) {
+        auto rule_decision = decision_of(rule);
+        if (!rule_decision.has_value() || rule.host.is_empty())
             continue;
         auto rule_host = rule.host.bytes_as_string_view();
         auto covers = host == rule_host || host.ends_with(ByteString::formatted(".{}", rule_host));
         if (covers && rule_host.length() >= longest_host) {
             longest_host = rule_host.length();
-            decision = rule.page_scripts_enabled;
+            decision = rule_decision;
         }
     }
+    return decision;
+}
+
+bool Page::page_scripts_may_run_in(URL::URL const& url) const
+{
+    auto decision = embedder_site_decision(m_embedder_site_settings, url, [](auto const& rule) { return rule.page_scripts_enabled; });
     return decision.value_or(m_embedder_site_settings.page_scripts_enabled);
+}
+
+bool Page::autoplay_with_sound_allowed_in(URL::URL const& url) const
+{
+    return embedder_site_decision(m_embedder_site_settings, url, [](auto const& rule) { return rule.autoplay_with_sound; }).value_or(false);
+}
+
+void Page::set_media_suspended(bool suspended)
+{
+    if (m_media_suspended == suspended)
+        return;
+    m_media_suspended = suspended;
+
+    if (suspended) {
+        m_media_paused_by_suspension.clear();
+        for_each_media_element([&](HTML::HTMLMediaElement& media_element) {
+            if (media_element.paused())
+                return;
+            m_media_paused_by_suspension.append(media_element.unique_id());
+            media_element.pause();
+        });
+        return;
+    }
+
+    for (auto media_id : exchange(m_media_paused_by_suspension, {})) {
+        if (auto* node = DOM::Node::from_unique_id(media_id))
+            as<HTML::HTMLMediaElement>(*node).play_from_user_interaction();
+    }
 }
 
 Page::FindInPageResult Page::perform_find_in_page_query(FindInPageQuery const& query, Optional<SearchDirection> direction)

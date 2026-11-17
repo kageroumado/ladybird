@@ -410,8 +410,9 @@ void HubLink::view_finish_handling_key_event(u64 view_id, u64 input_id, Web::Key
 
 void HubLink::view_release_input(u64 view_id, u64 input_id)
 {
+    // The Hub is done with the input, whether the page used it or not. Refrax only waits on its keys.
     auto* page = m_host.page_for_view(*this, view_id);
-    if (!page)
+    if (!page || !Host::is_key_input_id(input_id))
         return;
     JsonObject fields;
     fields.set("page"sv, page->id);
@@ -557,7 +558,8 @@ void HubLink::view_request_permission(u64 view_id, u64 answer_id, WebView::Permi
     JsonObject fields;
     fields.set("kind"sv, kind);
     fields.set("origin"sv, request.top_level_origin.serialize());
-    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Permission, .answer_id = answer_id }, "permission"sv, move(fields));
+    auto grant_is_kept = request.name == Web::Permissions::PermissionName::Notifications;
+    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Permission, .answer_id = answer_id, .grant_is_kept = grant_is_kept }, "permission"sv, move(fields));
 }
 
 void HubLink::view_selected_text(u64, u64, Optional<ByteString> text)

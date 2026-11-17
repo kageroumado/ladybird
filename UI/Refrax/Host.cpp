@@ -771,8 +771,12 @@ void Host::handle_answer(Page& page, JsonObject const& fields)
         break;
     }
     case PendingRequest::Kind::Permission:
-        // NB: Refrax keeps every permission decision itself, so the engine is only ever told about this one request.
-        hub.async_view_answer_permission_request(page.view_id, pending->answer_id, accepted ? Web::Permissions::PromptOutcome::AllowOnce : Web::Permissions::PromptOutcome::Block);
+        // NB: Refrax keeps every permission decision itself, so the engine is told about this one request. The grant of
+        //     a notification is the exception: Notification.permission reads the engine's own record of it.
+        hub.async_view_answer_permission_request(page.view_id, pending->answer_id,
+            !accepted ? Web::Permissions::PromptOutcome::Block
+                      : pending->grant_is_kept ? Web::Permissions::PromptOutcome::AllowAlways
+                                               : Web::Permissions::PromptOutcome::AllowOnce);
         break;
     }
 }
@@ -855,7 +859,7 @@ void Host::handle_mouse(Page& page, JsonObject const& fields)
             event.scroll_gesture_phase = Web::ScrollGesturePhase::Ended;
     }
 
-    page.hub->async_view_enqueue_mouse_event(page.view_id, m_next_input_id++, move(event));
+    page.hub->async_view_enqueue_mouse_event(page.view_id, MOUSE_INPUT_ID_BIT | m_next_input_id++, move(event));
 }
 
 void Host::handle_key(Page& page, JsonObject const& fields)
@@ -898,7 +902,10 @@ void Host::handle_key(Page& page, JsonObject const& fields)
         .should_insert_text = is_down && types_text,
     };
 
-    if (auto commands = fields.get_array("commands"sv); is_down && commands.has_value()) {
+    // NB: Only a key held with Control and without Command goes by the system's key bindings, such as ^A for the
+    //     start of the line. Every other key does what the engine itself gives it.
+    auto follows_system_bindings = (modifiers & Web::UIEvents::Mod_Ctrl) && !(modifiers & Web::UIEvents::Mod_Super);
+    if (auto commands = fields.get_array("commands"sv); is_down && follows_system_bindings && commands.has_value()) {
         commands->for_each([&](JsonValue const& selector) {
             if (!selector.is_string())
                 return;

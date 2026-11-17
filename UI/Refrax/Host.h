@@ -34,6 +34,8 @@ struct PendingRequest {
     Kind kind;
     // The Hub's own number for the question, where it has one.
     u64 answer_id { 0 };
+    // A permission that the page reads back as granted only once the grant is kept, as for notifications.
+    bool grant_is_kept { false };
 };
 
 // What the host keeps of a page that Refrax shows: the Hub's view behind it, and what the contract's events are
@@ -141,6 +143,8 @@ public:
     // Writes a frame's pixels to a file under the engine's storage and returns its path.
     ErrorOr<String> write_snapshot_pixels(u64 request_id, ReadonlyBytes);
 
+    static bool is_key_input_id(u64 input_id) { return !(input_id & MOUSE_INPUT_ID_BIT); }
+
 private:
     void handle_message(String const& name, JsonObject const& fields);
 
@@ -172,6 +176,11 @@ private:
     void abandon_download(u64 id);
     ByteString download_staging_directory(String const& profile_key) const;
     void take_snapshot(Page&, u64 id);
+
+    // NB: The Hub numbers the input it is given with the numbers it is given. Refrax numbers its key events, and the
+    //     host numbers the mouse events with this bit set, so that neither is taken for the other when the Hub lets go
+    //     of one.
+    static constexpr u64 MOUSE_INPUT_ID_BIT = 1ull << 62;
 
     // How long a snapshot waits for a page that has shown nothing yet.
     static constexpr auto FIRST_FRAME_WAIT_LIMIT = AK::Duration::from_seconds(3);

@@ -138,6 +138,8 @@ public:
     void did_execute_js_console_input(WebView::DebuggerValue const&);
     ErrorOr<WebView::DebuggerObjectProperties> console_object_properties(u64 object_id);
     void run_javascript(StringView js_source);
+    void evaluate_script(u64 request_id, String const& source, bool user_gesture);
+    void finish_evaluating_script(u64 request_id, JS::Realm&, JS::Value);
     void did_output_js_console_message(WebView::ConsoleOutput);
 
     Vector<Web::CSS::StyleSheetIdentifier> list_style_sheets() const;

@@ -318,8 +318,8 @@ def configure_build_env(platform: Platform, preset: str, jobs: Optional[str] = N
     os.environ["LADYBIRD_SOURCE_DIR"] = str(LADYBIRD_SOURCE_DIR)
     os.environ["LADYBIRD_MAIN_SOURCE_DIR"] = str(ladybird_main_source_dir)
 
-    build_root_dir = LADYBIRD_SOURCE_DIR / "Build"
-    main_build_root_dir = ladybird_main_source_dir / "Build"
+    build_root_dir = (LADYBIRD_SOURCE_DIR / "Build").resolve()
+    main_build_root_dir = (ladybird_main_source_dir / "Build").resolve()
 
     BUILD_PRESETS = {
         "All_Debug": build_root_dir / "alldebug",

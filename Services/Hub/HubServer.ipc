@@ -179,6 +179,9 @@ endpoint HubServer
     view_file_picker_closed(u64 view_id, Vector<Web::HTML::SelectedFile> selected_files) =|
     view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bitmap) =|
     view_request_selected_text(u64 view_id, u64 request_id) =|
+    view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture) =|
+    // The UI then answers view_request_navigation for each navigation of the view's top-level document.
+    view_set_decides_navigations(u64 view_id, bool decides_navigations) =|
     view_request_close_preflight(u64 view_id, u64 request_id) =|
     view_request_page_dumps(u64 view_id, u64 request_id) =|
     request_platform_features_description(u64 request_id) =|
@@ -262,6 +265,8 @@ endpoint HubServer
     view_zoom_in(u64 view_id) =|
     view_zoom_out(u64 view_id) =|
     view_reset_zoom(u64 view_id) =|
+    // The view keeps this zoom across navigations from now on, whatever is saved for the sites it shows.
+    view_set_zoom(u64 view_id, double zoom_level) =|
     view_set_display_metadata(u64 view_id, Optional<u64> display_id, double maximum_frames_per_second, bool screen_shows_high_dynamic_range) =|
     view_set_scales_frames_to_fit(u64 view_id, bool scales_frames_to_fit) =|
     view_enable_picture_in_picture_controls(u64 view_id) =|

@@ -41,6 +41,7 @@ public:
     void push_state_to_ui();
 
     void did_get_answer(u64 answer_id, bool answer);
+    void set_ui_decides_navigations(bool);
     void did_get_permission_answer(u64 answer_id, Web::Permissions::PromptOutcome);
 
     Gfx::IntSize screen_size() const;

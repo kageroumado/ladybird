@@ -146,6 +146,11 @@ if (NOT TARGET ladybird)
     message(FATAL_ERROR "UI Framework selection must declare a ladybird target")
 endif()
 
+# The Refrax engine host shows pages in Refrax's windows. It lives with the helpers, which it launches as the UI does.
+if (APPLE)
+    add_subdirectory("Refrax")
+endif()
+
 if (TARGET ladybird_impl)
     set(LADYBIRD_TARGET ladybird_impl PUBLIC)
 else()
@@ -207,6 +212,8 @@ endif()
 set_helper_process_properties(${ladybird_helper_processes})
 if (APPLE)
     set_helper_process_properties(WebDriver)
+    set_helper_process_properties(RefraxLadybirdHost)
+    add_dependencies(RefraxLadybirdHost ${ladybird_helper_processes})
 
     # WebDriver and the helpers can link into the bundle after ladybird has signed it — and that leaves the seal stale
     # until something later relinks ladybird. Sign once more with everything in place.

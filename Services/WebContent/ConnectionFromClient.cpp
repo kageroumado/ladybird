@@ -3676,6 +3676,16 @@ void ConnectionFromClient::run_javascript(Web::PageId page_id, String js_source)
         page->run_javascript(js_source);
 }
 
+void ConnectionFromClient::evaluate_script(Web::PageId page_id, u64 request_id, String source, bool user_gesture)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value()) {
+        async_did_evaluate_script(page_id, request_id, {}, "The page is gone"_string);
+        return;
+    }
+    page->evaluate_script(request_id, source, user_gesture);
+}
+
 void ConnectionFromClient::did_open_dialog_in_another_process(Web::PageId page_id, Web::Page::PendingDialog dialog, Utf16String message)
 {
     if (auto page = this->page(page_id); page.has_value())

@@ -897,6 +897,12 @@ void ViewImplementation::set_zoom(double zoom_level)
     update_zoom();
 }
 
+void ViewImplementation::set_zoom_kept_by_embedder(double zoom_level)
+{
+    m_embedder_keeps_zoom = true;
+    set_zoom(zoom_level);
+}
+
 void ViewImplementation::reset_zoom()
 {
     set_zoom(1.0);
@@ -2768,6 +2774,24 @@ void ViewImplementation::run_javascript(String const& js_source)
     page().async_run_javascript(js_source);
 }
 
+void ViewImplementation::evaluate_script(String const& source, bool user_gesture, OnScriptEvaluated on_evaluated)
+{
+    auto page = has_traversable() ? traversable().display_page() : nullptr;
+    if (!page || !page->is_open()) {
+        on_evaluated({}, "The tab has no page to run the script in"_string);
+        return;
+    }
+    auto request_id = m_next_script_evaluation_id++;
+    m_pending_script_evaluations.set(request_id, move(on_evaluated));
+    page->async_evaluate_script(request_id, source, user_gesture);
+}
+
+void ViewImplementation::did_evaluate_script(Badge<WebContentPage>, u64 request_id, Optional<String> result_json, Optional<String> error)
+{
+    if (auto on_evaluated = m_pending_script_evaluations.take(request_id); on_evaluated.has_value())
+        (*on_evaluated)(move(result_json), move(error));
+}
+
 void ViewImplementation::js_console_input(String const& js_source)
 {
     page().async_js_console_input(js_source);
@@ -3148,6 +3172,8 @@ void ViewImplementation::update_zoom()
 
 void ViewImplementation::apply_zoom_for_current_host()
 {
+    if (m_embedder_keeps_zoom)
+        return;
     auto zoom_level = Application::settings().zoom_for_host(current_host_for_settings());
     if (zoom_level == m_zoom_level)
         return;
@@ -5045,6 +5071,11 @@ void ViewImplementation::reject_pending_selection_requests()
     reject_requests(m_pending_selected_text_for_lookup_requests);
     reject_requests(m_pending_select_word_for_dictionary_lookup_requests);
     reject_requests(m_pending_cut_selected_text_requests);
+
+    // NB: The page that would have answered is gone, and with it the scripts that it was running.
+    auto pending_script_evaluations = move(m_pending_script_evaluations);
+    for (auto& evaluation : pending_script_evaluations)
+        evaluation.value({}, "The page was replaced before the script finished"_string);
 }
 
 SpellChecker::DocumentTag ViewImplementation::spell_document_tag()

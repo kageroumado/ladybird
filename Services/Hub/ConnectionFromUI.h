@@ -101,6 +101,9 @@ private:
     virtual void view_file_picker_closed(u64 view_id, Vector<Web::HTML::SelectedFile> selected_files) override;
     virtual void view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bitmap) override;
     virtual void view_request_selected_text(u64 view_id, u64 request_id) override;
+    virtual void view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture) override;
+    virtual void view_set_decides_navigations(u64 view_id, bool decides_navigations) override;
+    virtual void view_set_zoom(u64 view_id, double zoom_level) override;
     virtual void view_request_close_preflight(u64 view_id, u64 request_id) override;
     virtual void view_request_page_dumps(u64 view_id, u64 request_id) override;
     virtual void request_platform_features_description(u64 request_id) override;

@@ -161,6 +161,29 @@ void View::set_screen_rects(ScreenRects screen_rects)
     update_screen_rects();
 }
 
+void View::set_ui_decides_navigations(bool decides_navigations)
+{
+    if (!decides_navigations) {
+        on_navigation_policy_request = nullptr;
+        on_navigation_response = nullptr;
+        return;
+    }
+    on_navigation_response = [this](NavigationResponse const& response) {
+        if (auto* ui = ConnectionFromUI::the())
+            ui->async_view_navigation_response(view_id(), response.url_list, response.status, response.network_error);
+    };
+    on_navigation_policy_request = [this](NavigationPolicyRequest request, Function<void(bool)> on_complete) {
+        auto* ui = ConnectionFromUI::the();
+        if (!ui) {
+            on_complete(true);
+            return;
+        }
+        auto answer_id = m_next_answer_id++;
+        m_pending_answers.set(answer_id, move(on_complete));
+        ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.user_involvement, request.initiator_origin);
+    };
+}
+
 void View::did_get_answer(u64 answer_id, bool answer)
 {
     if (auto on_answer = m_pending_answers.take(answer_id); on_answer.has_value())

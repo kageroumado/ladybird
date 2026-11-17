@@ -445,6 +445,32 @@ void ConnectionFromUI::view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bi
         view->save_screenshot(*bitmap.bitmap());
 }
 
+void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture)
+{
+    auto* view = find_view(view_id);
+    if (!view || !view->has_traversable()) {
+        async_view_did_evaluate_script(view_id, request_id, {}, "The view is gone"_string);
+        return;
+    }
+    view->evaluate_script(source, user_gesture, [this, view_id, request_id](Optional<String> result_json, Optional<String> error) {
+        async_view_did_evaluate_script(view_id, request_id, move(result_json), move(error));
+    });
+}
+
+void ConnectionFromUI::view_set_zoom(u64 view_id, double zoom_level)
+{
+    if (auto* view = find_view(view_id); view && view->has_traversable()) {
+        view->set_zoom_kept_by_embedder(zoom_level);
+        view->push_state_to_ui();
+    }
+}
+
+void ConnectionFromUI::view_set_decides_navigations(u64 view_id, bool decides_navigations)
+{
+    if (auto* view = find_view(view_id))
+        view->set_ui_decides_navigations(decides_navigations);
+}
+
 void ConnectionFromUI::view_request_selected_text(u64 view_id, u64 request_id)
 {
     auto* view = find_view(view_id);

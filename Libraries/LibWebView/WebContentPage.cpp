@@ -1321,6 +1321,11 @@ void WebContentPage::did_cut_selected_text(u64 request_id, ByteString selection)
     view().did_cut_selected_text({}, request_id, move(selection));
 }
 
+void WebContentPage::did_evaluate_script(u64 request_id, Optional<String> result_json, Optional<String> error)
+{
+    view().did_evaluate_script({}, request_id, move(result_json), move(error));
+}
+
 void WebContentPage::did_execute_js_console_input(DebuggerValue result)
 {
     if (displays_tab()) {
@@ -2672,6 +2677,42 @@ void WebContentPage::did_request_navigation_start(Web::HTML::CrossProcessId navi
 // page's own, with the navigation's bookkeeping, comes last, told whether a prompt was shown.
 void WebContentPage::begin_navigation_unload_check(CanonicalNavigable& target_navigable, Utf16String const& navigation_id)
 {
+    // An embedder that decides where URLs go answers first, for the tab's top-level document. The navigation has made
+    // no request yet, so one it turns away leaves no trace on the network.
+    auto navigation = target_navigable.navigation_with_id(navigation_id);
+    auto const* checking = navigation ? navigation->state.get_pointer<CanonicalNavigation::CheckingIfUnloadingIsCanceled>() : nullptr;
+    if (checking && target_navigable.is_top_level_traversable() && displays_tab() && view().on_navigation_policy_request
+        && checking->start_request.url.scheme().is_one_of("http"sv, "https"sv, "file"sv, "data"sv, "blob"sv)) {
+        auto const& start_request = checking->start_request;
+        auto from_browser = start_request.user_involvement == Web::HTML::UserNavigationInvolvement::BrowserUI;
+        ViewImplementation::NavigationPolicyRequest request {
+            .url = start_request.url,
+            .is_form_submission = start_request.csp_navigation_type == Web::ContentSecurityPolicy::Directives::NavigationType::FormSubmission,
+            .user_involvement = start_request.user_involvement,
+            .initiator_origin = from_browser ? Optional<URL::Origin> {} : Optional<URL::Origin> { start_request.initiator_origin },
+        };
+        view().on_navigation_policy_request(move(request), [page = NonnullRefPtr<WebContentPage>(*this), navigable_id = target_navigable.id(), navigation_id](bool allowed) {
+            if (!page->is_open())
+                return;
+            auto navigable = page->population_worker_navigable(navigable_id);
+            // NB: Another navigation can have replaced this one while the embedder decided.
+            if (!navigable.has_value() || !navigable->navigation_with_id(navigation_id))
+                return;
+            if (!allowed) {
+                page->async_cancel_navigation_params_creation(navigable_id, navigation_id);
+                page->did_fail_navigation_population(navigable_id, navigation_id);
+                return;
+            }
+            page->run_navigation_unload_check_for(*navigable, navigation_id);
+        });
+        return;
+    }
+
+    run_navigation_unload_check_for(target_navigable, navigation_id);
+}
+
+void WebContentPage::run_navigation_unload_check_for(CanonicalNavigable& target_navigable, Utf16String const& navigation_id)
+{
     Vector<Web::HTML::CrossProcessId> inclusive_descendants;
     target_navigable.for_each_in_inclusive_subtree([&](CanonicalNavigable const& navigable) {
         inclusive_descendants.append(navigable.id());
@@ -2751,6 +2792,25 @@ void WebContentPage::did_finish_navigation_params_creation(Web::HTML::CrossProce
     NonnullRefPtr acquiring_loader = *ongoing_navigation->loader();
     acquiring_loader->refuse_made_up_local_file_urls(client(), *result);
     acquiring_loader->did_finish_navigation_params_creation(result.release_value());
+    if (navigable->is_top_level_traversable() && displays_tab() && view().on_navigation_response) {
+        ViewImplementation::NavigationResponse response;
+        acquiring_loader->result().navigation_params.visit(
+            [&](Web::HTML::NavigationParamsNullOrError const& error) {
+                response.url_list.append(ongoing_navigation->url);
+                response.network_error = error.has_value() ? error->to_utf8() : "The navigation produced no response"_string;
+            },
+            [&](Web::HTML::NavigationParamsDescriptor const& params) {
+                response.url_list = params.response.url_list;
+                if (params.response.network_error_message.has_value())
+                    response.network_error = params.response.network_error_message;
+                else if (!params.response.url_list.is_empty() && params.response.url_list.last().scheme().is_one_of("http"sv, "https"sv))
+                    response.status = params.response.status;
+            },
+            [&](Web::HTML::NonFetchSchemeNavigationParamsDescriptor const&) {
+                response.url_list.append(ongoing_navigation->url);
+            });
+        view().on_navigation_response(response);
+    }
     if (ongoing_navigation->history_entry->update_from_descriptor(Web::HTML::create_session_history_entry_descriptor(acquiring_loader->request().history_entry, 0)).is_error()) {
         auto rejected_result = acquiring_loader->take_result();
         NavigationLoader::discard(client(), rejected_result);

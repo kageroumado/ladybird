@@ -25,6 +25,7 @@
 #include <LibIPC/TransportHandle.h>
 #include <LibJS/Console.h>
 #include <LibJS/Runtime/ConsoleObject.h>
+#include <LibJS/Runtime/JSONObject.h>
 #include <LibMedia/Sinks/AudioOutputFactory.h>
 #include <LibMediaClient/RemotePlaybackManager.h>
 #include <LibWeb/CSS/StyleScope.h>
@@ -2715,6 +2716,82 @@ void PageClient::run_javascript(StringView js_source)
 
     if (evaluation_status.is_error())
         dbgln("Exception :(");
+}
+
+// What a script threw, as the page would print it: an Error's "Name: message", or the value itself.
+static String describe_thrown_value(JS::VM& vm, JS::Value value)
+{
+    if (auto string = value.to_utf16_string(vm); !string.is_throw_completion())
+        return string.release_value().to_utf8();
+    return value.to_utf16_string_without_side_effects().to_utf8();
+}
+
+void PageClient::finish_evaluating_script(u64 request_id, JS::Realm& realm, JS::Value value)
+{
+    auto& vm = realm.vm();
+    Web::HTML::TemporaryExecutionContext execution_context { realm, Web::HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
+
+    auto json = JS::JSONObject::stringify_impl(vm, value, JS::js_undefined(), JS::js_undefined());
+    if (json.is_throw_completion()) {
+        client().async_did_evaluate_script(m_id, request_id, {}, describe_thrown_value(vm, json.release_error().value()));
+        return;
+    }
+    // NB: JSON has no undefined, and neither a function nor a symbol has a JSON form. They all read as null.
+    auto text = json.release_value();
+    client().async_did_evaluate_script(m_id, request_id, text.has_value() ? text->to_utf8() : "null"_string, {});
+}
+
+void PageClient::evaluate_script(u64 request_id, String const& source, bool user_gesture)
+{
+    auto active_document = page().local_traversable()->active_document();
+    if (!active_document) {
+        client().async_did_evaluate_script(m_id, request_id, {}, "The page has no document"_string);
+        return;
+    }
+
+    auto& settings = active_document->relevant_settings_object();
+    auto& realm = settings.realm();
+    auto& vm = realm.vm();
+
+    if (user_gesture)
+        Web::HTML::Window::run_activation_notification_steps(*active_document);
+
+    auto script = Web::HTML::ClassicScript::create("(evaluate_script)", Utf16String::from_utf8(source), settings, settings.api_base_url());
+    auto completion = script->run(Web::HTML::ClassicScript::RethrowErrors::Yes);
+
+    Web::HTML::TemporaryExecutionContext execution_context { realm, Web::HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
+
+    if (completion.is_abrupt()) {
+        client().async_did_evaluate_script(m_id, request_id, {}, describe_thrown_value(vm, completion.value()));
+        return;
+    }
+
+    auto value = completion.value();
+    auto is_thenable = false;
+    if (value.is_object()) {
+        auto then = value.as_object().get(vm.names.then);
+        if (then.is_throw_completion()) {
+            client().async_did_evaluate_script(m_id, request_id, {}, describe_thrown_value(vm, then.release_error().value()));
+            return;
+        }
+        is_thenable = then.value().is_function();
+    }
+    if (!is_thenable) {
+        finish_evaluating_script(request_id, realm, value);
+        return;
+    }
+
+    auto promise = Web::WebIDL::create_resolved_promise(realm, value);
+    Web::WebIDL::react_to_promise(promise,
+        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, request_id), [](auto& self, auto& realm, auto& request_id, JS::Value value) -> Web::WebIDL::ExceptionOr<JS::Value> {
+            self.finish_evaluating_script(request_id, realm, value);
+            return JS::js_undefined();
+        }),
+        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, request_id), [](auto& self, auto& realm, auto& request_id, JS::Value reason) -> Web::WebIDL::ExceptionOr<JS::Value> {
+            Web::HTML::TemporaryExecutionContext execution_context { realm, Web::HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
+            self.client().async_did_evaluate_script(self.m_id, request_id, {}, describe_thrown_value(realm.vm(), reason));
+            return JS::js_undefined();
+        }));
 }
 
 void PageClient::did_output_js_console_message(WebView::ConsoleOutput console_output)

@@ -155,6 +155,7 @@ public:
 
     void begin_top_level_load(URL::URL const&);
     void begin_navigation_unload_check(CanonicalNavigable&, Utf16String const& navigation_id);
+    void run_navigation_unload_check_for(CanonicalNavigable&, Utf16String const& navigation_id);
 
     void request_close();
     void discard();
@@ -251,6 +252,7 @@ private:
     virtual void did_select_word_for_dictionary_lookup(u64 request_id, bool selected) override;
     virtual void did_cut_selected_text(u64 request_id, ByteString selection) override;
     virtual void did_execute_js_console_input(DebuggerValue result) override;
+    virtual void did_evaluate_script(u64 request_id, Optional<String> result_json, Optional<String> error) override;
     virtual void did_output_js_console_message(ConsoleOutput console_output) override;
     virtual void did_block_resource(URL::URL url, String kind) override;
     virtual void did_start_network_request(u64 request_id, URL::URL url, ByteString method, Vector<HTTP::Header> request_headers, ByteBuffer request_body, Optional<String> initiator_type, String referrer_policy, bool is_navigation_request, Web::Fetch::Infrastructure::RequestPriority priority) override;

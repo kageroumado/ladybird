@@ -198,6 +198,9 @@ endpoint WebContentServer routed by Web::PageId page_id
     js_console_input(Web::PageId page_id, String js_source) =|
     complete_js_console_input(Web::PageId page_id, u64 request_id, String input) =|
     run_javascript(Web::PageId page_id, String js_source) =|
+    // Runs the source as a classic script in the page's main document and answers did_evaluate_script with its value
+    // as JSON, once a promise it returns has settled.
+    evaluate_script(Web::PageId page_id, u64 request_id, String source, bool user_gesture) =|
 
     list_style_sheets(Web::PageId page_id) =|
     request_style_sheet_source(Web::PageId page_id, Web::CSS::StyleSheetIdentifier identifier) =|

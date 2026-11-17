@@ -293,6 +293,9 @@ public:
     void zoom_in();
     void zoom_out();
     void set_zoom(double zoom_level);
+    // An embedder that keeps each tab's zoom itself sets it here. The tab then holds that zoom across navigations, and
+    // the zoom saved for a site no longer applies to it.
+    void set_zoom_kept_by_embedder(double zoom_level);
     void reset_zoom();
     double zoom_level() const { return m_zoom_level; }
 
@@ -491,6 +494,10 @@ public:
     void debug_request(ByteString const& request, ByteString const& argument = {});
 
     void run_javascript(String const&);
+    // Runs the source in the tab's main document. The embedder gets its value as JSON, or what it threw.
+    using OnScriptEvaluated = Function<void(Optional<String> result_json, Optional<String> error)>;
+    void evaluate_script(String const& source, bool user_gesture, OnScriptEvaluated);
+    void did_evaluate_script(Badge<WebContentPage>, u64 request_id, Optional<String> result_json, Optional<String> error);
     void js_console_input(String const&);
     void exit_fullscreen();
     void deny_fullscreen_window();
@@ -633,6 +640,26 @@ public:
     Function<void(ContentBlockingSnapshot const&)> on_content_blocking_change;
     Function<void(Utf16String const& message)> on_request_alert;
     Function<void(String const& source, Function<void(bool)> on_complete)> on_request_before_unload;
+    // An embedder that decides where URLs go is asked about each navigation of the tab's top-level document before its
+    // first request, and the navigation waits for the answer.
+    struct NavigationPolicyRequest {
+        URL::URL url;
+        bool is_form_submission { false };
+        Web::HTML::UserNavigationInvolvement user_involvement { Web::HTML::UserNavigationInvolvement::None };
+        // The origin of the document that started the navigation, which the browser's own navigations have none of.
+        Optional<URL::Origin> initiator_origin;
+    };
+    Function<void(NavigationPolicyRequest, Function<void(bool allowed)> on_complete)> on_navigation_policy_request;
+    // What came back for a navigation of the tab's top-level document, before the document it makes is activated.
+    struct NavigationResponse {
+        // The URLs the request went through: the one navigated to, then each one a redirect led to.
+        Vector<URL::URL> url_list;
+        // The response's HTTP status, for a response that came over HTTP.
+        Optional<u16> status;
+        // Why there is no response, as when the server could not be reached.
+        Optional<String> network_error;
+    };
+    Function<void(NavigationResponse const&)> on_navigation_response;
     Function<void(Utf16String const& message)> on_request_confirm;
     Function<void(Utf16String const& message, Utf16String const& default_)> on_request_prompt;
     Function<void(Utf16String const& message)> on_request_set_prompt_text;
@@ -940,6 +967,7 @@ protected:
     Optional<CrashState> m_crash_state;
 
     double m_zoom_level { 1.0 };
+    bool m_embedder_keeps_zoom { false };
     double m_device_pixel_ratio { 1.0 };
     Optional<u64> m_display_id;
     double m_maximum_frames_per_second { 60.0 };
@@ -963,6 +991,8 @@ protected:
 
     u64 m_next_selection_request_id { 1 };
     HashMap<u64, NonnullRefPtr<Core::Promise<ByteString>>> m_pending_selected_text_requests;
+    HashMap<u64, OnScriptEvaluated> m_pending_script_evaluations;
+    u64 m_next_script_evaluation_id { 1 };
     HashMap<u64, NonnullRefPtr<Core::Promise<Optional<DictionaryLookup>>>> m_pending_selected_text_for_lookup_requests;
     HashMap<u64, NonnullRefPtr<Core::Promise<bool>>> m_pending_select_word_for_dictionary_lookup_requests;
     HashMap<u64, NonnullRefPtr<Core::Promise<ByteString>>> m_pending_cut_selected_text_requests;

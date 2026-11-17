@@ -153,7 +153,7 @@ bool url_matches_pattern(URL::URL const& url, StringView pattern)
     }
 
     // NB: A file: URL has no host, and its pattern has none either.
-    auto host = url.serialized_host().to_byte_string();
+    auto host = url.host().has_value() ? url.serialized_host().to_byte_string() : ByteString {};
     if (pattern_host == "*"sv) {
         // Any host.
     } else if (pattern_host.starts_with("*."sv)) {
@@ -185,13 +185,25 @@ static bool script_matches(EmbedderScript const& script, URL::URL const& url)
     return false;
 }
 
-// The channels the embedder grants to the scripts of a world, which that world then finds under
-// window.webkit.messageHandlers.
-static Vector<String> channels_of_world(Page const& page, Optional<String> const& world)
+// Whether the embedder's script runs in the window's document, whenever it is due.
+static bool script_applies_to(EmbedderScript const& script, Window& window)
+{
+    auto& document = window.associated_document();
+    auto navigable = document.navigable();
+    if (!navigable)
+        return false;
+    if (script.main_frame_only && navigable->parent())
+        return false;
+    return script_matches(script, document.url());
+}
+
+// The channels the embedder grants to a world in the window's document: those of the world's scripts that run in that
+// document, and of no others. The world then finds them under window.webkit.messageHandlers.
+static Vector<String> channels_of_world(Window& window, Optional<String> const& world)
 {
     Vector<String> channels;
-    for (auto const& script : page.embedder_scripts()) {
-        if (script.world != world)
+    for (auto const& script : window.page().embedder_scripts()) {
+        if (script.world != world || !script_applies_to(script, window))
             continue;
         for (auto const& channel : script.channels) {
             if (!channels.contains_slow(channel))
@@ -296,7 +308,7 @@ JS::Realm& EmbedderWorlds::ensure_world(Window& window, String const& name)
     Bindings::cache_global_object_wrapper(realm);
     MUST(Bindings::initialize_window_web_interfaces(window, realm));
 
-    install_message_handlers(realm, name, channels_of_world(window.page(), name));
+    install_message_handlers(realm, name, channels_of_world(window, name));
 
     m_worlds.set(name, World { move(execution_context), realm, wrapper_world, window_proxy });
     return realm;
@@ -347,9 +359,19 @@ void run_embedder_scripts(DOM::Document& document, EmbedderScript::InjectionTime
         return;
     auto is_main_frame = !navigable->parent();
 
+    // NB: A document start is told once, by the parser as it makes the root element. A document that reaches its end
+    //     without one, as when it has no root element to make, has its start then.
+    if (injection_time == EmbedderScript::InjectionTime::DocumentStart) {
+        if (document.embedder_document_start_scripts_ran())
+            return;
+        document.set_embedder_document_start_scripts_ran();
+    } else if (!document.embedder_document_start_scripts_ran()) {
+        run_embedder_scripts(document, EmbedderScript::InjectionTime::DocumentStart);
+    }
+
     // The page's own world gets its channels before any script of the document runs.
     if (injection_time == EmbedderScript::InjectionTime::DocumentStart && !window->embedder_worlds().page_world_has_channels()) {
-        if (auto channels = channels_of_world(page, {}); !channels.is_empty()) {
+        if (auto channels = channels_of_world(*window, {}); !channels.is_empty()) {
             install_message_handlers(window->principal_realm(), {}, channels);
             window->embedder_worlds().set_page_world_has_channels();
         }

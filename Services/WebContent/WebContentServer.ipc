@@ -204,6 +204,8 @@ endpoint WebContentServer routed by Web::PageId page_id
     evaluate_script(Web::PageId page_id, u64 request_id, String source, Optional<String> world, bool user_gesture) =|
     // The scripts the embedder runs in the page's documents, as the JSON array of the engine contract's policy.
     set_embedder_scripts(Web::PageId page_id, String scripts_json) =|
+    // What the embedder lets sites do, as the JSON object of the engine contract's siteSettings policy.
+    set_embedder_site_settings(Web::PageId page_id, String settings_json) =|
     // The embedder's answer to did_post_embedder_message.
     embedder_message_reply(Web::PageId page_id, u64 embedder_message_id, Optional<String> value_json, Optional<String> error) =|
 

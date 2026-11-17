@@ -183,6 +183,8 @@ endpoint HubServer
     view_evaluate_script(u64 view_id, u64 request_id, String source, Optional<String> world, bool user_gesture) =|
     // The scripts the UI runs in every page's documents, as the JSON array of Refrax's engine contract.
     set_embedder_scripts(String scripts_json) =|
+    // What the UI lets sites do, as the JSON object of the contract's siteSettings policy.
+    set_embedder_site_settings(String settings_json) =|
     view_embedder_message_reply(u64 view_id, u64 embedder_message_id, Optional<String> value_json, Optional<String> error) =|
     // The UI then answers view_request_navigation for each navigation of the view's top-level document.
     view_set_decides_navigations(u64 view_id, bool decides_navigations) =|

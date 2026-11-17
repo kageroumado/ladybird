@@ -8301,10 +8301,6 @@ void Document::update_for_history_step_application(NonnullRefPtr<HTML::SessionHi
             }
         }
 
-        // AD-HOC: The embedder's document-start scripts run once the document is active in its navigable, before any
-        //         script of the document itself.
-        HTML::run_embedder_scripts(*this, HTML::EmbedderScript::InjectionTime::DocumentStart);
-
         // 3. If scrollingBlockedInNewDocument is false, try to scroll to the fragment for document.
         if (!scrolling_blocked_in_new_document)
             try_to_scroll_to_the_fragment(allow_text_directive_scroll);

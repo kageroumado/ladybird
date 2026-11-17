@@ -245,6 +245,20 @@ public:
     bool is_scripting_enabled() const { return m_is_scripting_enabled; }
     void set_is_scripting_enabled(bool b) { m_is_scripting_enabled = b; }
 
+    // What the embedder lets sites do, where it decides that per site. A rule's host covers its subdomains, and the
+    // rule of the longest host that covers a document decides for it.
+    struct EmbedderSiteSettings {
+        struct Rule {
+            String host;
+            Optional<bool> page_scripts_enabled;
+        };
+        bool page_scripts_enabled { true };
+        Vector<Rule> rules;
+    };
+    void set_embedder_site_settings(EmbedderSiteSettings settings) { m_embedder_site_settings = move(settings); }
+    // Whether the scripts of a document at this URL may run. The embedder's own scripts run either way.
+    bool page_scripts_may_run_in(URL::URL const&) const;
+
     // The scripts the embedder runs in the page's documents.
     Vector<HTML::EmbedderScript> const& embedder_scripts() const { return m_embedder_scripts; }
     void set_embedder_scripts(Vector<HTML::EmbedderScript> scripts) { m_embedder_scripts = move(scripts); }
@@ -588,6 +602,7 @@ private:
     bool m_is_scripting_enabled { true };
     bool m_should_block_pop_ups { true };
     Vector<HTML::EmbedderScript> m_embedder_scripts;
+    EmbedderSiteSettings m_embedder_site_settings;
     bool m_enable_autoscroll { true };
     bool m_enable_primary_paste { true };
     u64 m_wheel_event_listener_state_generation { 0 };

@@ -293,6 +293,7 @@ private:
     virtual void run_javascript(Web::PageId page_id, String) override;
     virtual void evaluate_script(Web::PageId page_id, u64 request_id, String source, Optional<String> world, bool user_gesture) override;
     virtual void set_embedder_scripts(Web::PageId page_id, String scripts_json) override;
+    virtual void set_embedder_site_settings(Web::PageId page_id, String settings_json) override;
     virtual void embedder_message_reply(Web::PageId page_id, u64 message_id, Optional<String> value_json, Optional<String> error) override;
 
     virtual void did_open_dialog_in_another_process(Web::PageId page_id, Web::Page::PendingDialog dialog, Utf16String message) override;

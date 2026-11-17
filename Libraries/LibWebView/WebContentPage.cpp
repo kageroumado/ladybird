@@ -1332,6 +1332,19 @@ void WebContentPage::did_post_embedder_message(u64 message_id, Optional<String> 
         reply({}, "The embedder takes no messages"_string);
         return;
     }
+
+    // NB: The renderer may be compromised, and names the world and channel itself. Only a pair the embedder granted
+    //     reaches it. Which frame posted is this process's to say where it knows: the page showing the tab hosts the
+    //     top-level document, whose URL the view holds. A child frame's URL is the renderer's word, which the
+    //     embedder treats as it treats the message's body.
+    if (!Application::the().embedder_grants_channel(world, channel)) {
+        reply({}, "The embedder granted no such channel"_string);
+        return;
+    }
+    is_main_frame = is_main_frame && displays_tab();
+    if (is_main_frame)
+        frame_url = view().url();
+
     view().on_embedder_message({ move(world), move(channel), move(body_json), move(frame_url), is_main_frame }, move(reply));
 }
 

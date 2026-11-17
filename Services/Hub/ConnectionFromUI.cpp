@@ -445,6 +445,11 @@ void ConnectionFromUI::view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bi
         view->save_screenshot(*bitmap.bitmap());
 }
 
+void ConnectionFromUI::set_embedder_site_settings(String settings_json)
+{
+    Application::the().set_embedder_site_settings(move(settings_json));
+}
+
 void ConnectionFromUI::set_embedder_scripts(String scripts_json)
 {
     Application::the().set_embedder_scripts(move(scripts_json));

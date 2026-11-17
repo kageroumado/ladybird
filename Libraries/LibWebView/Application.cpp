@@ -2906,9 +2906,51 @@ void Application::set_scripting_enabled(bool enabled)
     send_debug_switch_to_every_view("scripting"sv, enabled);
 }
 
+void Application::set_embedder_site_settings(String settings_json)
+{
+    m_embedder_site_settings_json = move(settings_json);
+    ViewImplementation::for_each_view([&](ViewImplementation& view) {
+        if (view.has_traversable()) {
+            view.traversable().for_each_hosting_page([&](WebContentPage& page) {
+                page.async_set_embedder_site_settings(m_embedder_site_settings_json);
+            });
+        }
+        return IterationDecision::Continue;
+    });
+}
+
+bool Application::embedder_grants_channel(Optional<String> const& world, StringView channel) const
+{
+    return m_embedder_channels.contains([&](auto const& granted) { return granted.world == world && granted.channel == channel; });
+}
+
 void Application::set_embedder_scripts(String scripts_json)
 {
     m_embedder_scripts_json = move(scripts_json);
+
+    // NB: A renderer names the world and channel of each message it passes on, so this process keeps its own list of
+    //     what the embedder granted to check them against.
+    m_embedder_channels.clear();
+    if (auto json = JsonValue::from_string(m_embedder_scripts_json); !json.is_error() && json.value().is_array()) {
+        json.value().as_array().for_each([&](JsonValue const& script) {
+            if (!script.is_object())
+                return;
+            Optional<String> world;
+            if (auto world_object = script.as_object().get_object("world"sv); world_object.has_value()) {
+                if (auto isolated = world_object->get_object("isolated"sv); isolated.has_value()) {
+                    if (auto name = isolated->get_string("name"sv); name.has_value() && !name->is_empty())
+                        world = *name;
+                }
+            }
+            if (auto channels = script.as_object().get_array("channels"sv); channels.has_value()) {
+                channels->for_each([&](JsonValue const& channel) {
+                    if (channel.is_string())
+                        m_embedder_channels.append({ world, channel.as_string() });
+                });
+            }
+        });
+    }
+
     ViewImplementation::for_each_view([&](ViewImplementation& view) {
         if (view.has_traversable()) {
             view.traversable().for_each_hosting_page([&](WebContentPage& page) {
@@ -2952,6 +2994,8 @@ void Application::apply_view_options(Badge<ViewImplementation>, ViewImplementati
     apply_content_blocking_policy(page);
     if (!m_embedder_scripts_json.is_empty())
         page.async_set_embedder_scripts(m_embedder_scripts_json);
+    if (!m_embedder_site_settings_json.is_empty())
+        page.async_set_embedder_site_settings(m_embedder_site_settings_json);
 
     page.async_debug_request("set-line-box-borders"sv, m_shows_line_box_borders ? "on"sv : "off"sv);
     page.async_debug_request("set-caret-hit-test-debug-overlay"sv, m_shows_caret_hit_test_debug_overlay ? "on"sv : "off"sv);

@@ -3317,7 +3317,12 @@ bool Node::is_scripting_enabled() const
 bool Node::is_scripting_disabled() const
 {
     // Scripting is disabled for a node when scripting is not enabled, i.e., when its node document's browsing context is null or when scripting is disabled for its relevant settings object.
-    return !document().browsing_context() || HTML::is_scripting_disabled(HTML::relevant_settings_object(*this));
+    if (!document().browsing_context() || HTML::is_scripting_disabled(HTML::relevant_settings_object(*this)))
+        return true;
+    // AD-HOC: An embedder can keep a site's own scripts from running: its script elements, its event handler
+    //         attributes and what its noscript elements hide. The engine goes on running script for the document, which
+    //         the embedder's own scripts need.
+    return !document().page().page_scripts_may_run_in(document().url());
 }
 
 // https://dom.spec.whatwg.org/#concept-shadow-including-descendant

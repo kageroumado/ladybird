@@ -117,6 +117,10 @@ public:
     bool blocks_pop_ups() const { return m_blocks_pop_ups; }
     // The scripts the embedder runs in every page's documents, as the JSON array of the engine contract's policy.
     void set_embedder_scripts(String scripts_json);
+    // What the embedder lets sites do, as the JSON object of the engine contract's siteSettings policy.
+    void set_embedder_site_settings(String settings_json);
+    // Whether one of the embedder's scripts in that world, the page's own when none is named, is granted the channel.
+    bool embedder_grants_channel(Optional<String> const& world, StringView channel) const;
     ErrorOr<void> reload_site_compatibility_data();
 
     bool claim_cpu_profiler(ProcessType);
@@ -698,6 +702,12 @@ private:
     bool m_scripting_enabled { true };
     bool m_blocks_pop_ups { true };
     String m_embedder_scripts_json;
+    String m_embedder_site_settings_json;
+    struct EmbedderChannel {
+        Optional<String> world;
+        String channel;
+    };
+    Vector<EmbedderChannel> m_embedder_channels;
     bool m_shows_line_box_borders { false };
     bool m_shows_caret_hit_test_debug_overlay { false };
 

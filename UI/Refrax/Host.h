@@ -198,6 +198,8 @@ private:
     Core::AnonymousBuffer m_system_theme;
     // The scripts Refrax injects, as the JSON array of its policy.
     String m_scripts_json;
+    // Refrax's per-site settings, as the JSON object of its policy.
+    String m_site_settings_json;
     u64 m_next_request_id { 1 };
     u64 m_next_input_id { 1 };
     u64 m_next_download_id { 1 };

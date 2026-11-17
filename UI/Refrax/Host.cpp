@@ -283,6 +283,8 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
     hub->async_set_blocks_pop_ups(false);
     if (!m_scripts_json.is_empty())
         hub->async_set_embedder_scripts(m_scripts_json);
+    if (!m_site_settings_json.is_empty())
+        hub->async_set_embedder_site_settings(m_site_settings_json);
     hub->async_set_download_staging_directory(download_staging_directory(key));
     m_hubs.set(key, hub);
     return hub;
@@ -722,6 +724,13 @@ void Host::handle_policy(JsonObject const& update)
         m_scripts_json = list.has_value() ? list->serialized() : "[]"_string;
         for (auto& hub : m_hubs)
             hub.value->async_set_embedder_scripts(m_scripts_json);
+    }
+
+    if (auto site_settings = update.get_object("siteSettings"sv); site_settings.has_value()) {
+        auto policy = site_settings->get_object("policy"sv);
+        m_site_settings_json = policy.has_value() ? policy->serialized() : "{}"_string;
+        for (auto& hub : m_hubs)
+            hub.value->async_set_embedder_site_settings(m_site_settings_json);
     }
 }
 

@@ -3158,7 +3158,14 @@ extern "C" size_t ladybird_html_parser_create_element(void* parser, size_t inten
 
 extern "C" void ladybird_html_parser_append_child(size_t parent, size_t child)
 {
-    insert_node_for_parser(node_from_html_parser_ffi(parent), node_from_html_parser_ffi(child), nullptr);
+    auto& parent_node = node_from_html_parser_ffi(parent);
+    auto& child_node = node_from_html_parser_ffi(child);
+    insert_node_for_parser(parent_node, child_node, nullptr);
+
+    // AD-HOC: The embedder's document-start scripts run once the document has its root element, before any script of
+    //         the document itself, as content scripts do in other engines.
+    if (auto* document = as_if<DOM::Document>(parent_node); document && document->document_element() == &child_node)
+        HTML::run_embedder_scripts(*document, HTML::EmbedderScript::InjectionTime::DocumentStart);
 }
 
 extern "C" void ladybird_html_parser_insert_node(size_t parent, size_t offset, size_t child, bool queue_custom_element_reactions)

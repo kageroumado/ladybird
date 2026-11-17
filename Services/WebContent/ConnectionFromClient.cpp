@@ -3696,6 +3696,30 @@ void ConnectionFromClient::set_embedder_scripts(Web::PageId page_id, String scri
     page->page().set_embedder_scripts(json.is_error() ? Vector<Web::HTML::EmbedderScript> {} : Web::HTML::parse_embedder_scripts(json.value()));
 }
 
+void ConnectionFromClient::set_embedder_site_settings(Web::PageId page_id, String settings_json)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value())
+        return;
+
+    Web::Page::EmbedderSiteSettings settings;
+    if (auto json = JsonValue::from_string(settings_json); !json.is_error() && json.value().is_object()) {
+        auto const& object = json.value().as_object();
+        settings.page_scripts_enabled = object.get_bool("javaScriptEnabled"sv).value_or(true);
+        if (auto rules = object.get_array("rules"sv); rules.has_value()) {
+            rules->for_each([&](JsonValue const& rule) {
+                if (!rule.is_object())
+                    return;
+                auto host = rule.as_object().get_string("host"sv);
+                if (!host.has_value())
+                    return;
+                settings.rules.append({ *host, rule.as_object().get_bool("javaScriptEnabled"sv) });
+            });
+        }
+    }
+    page->page().set_embedder_site_settings(move(settings));
+}
+
 void ConnectionFromClient::embedder_message_reply(Web::PageId, u64 message_id, Optional<String> value_json, Optional<String> error)
 {
     Web::HTML::settle_embedder_message(message_id, value_json, error);

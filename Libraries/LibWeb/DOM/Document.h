@@ -968,6 +968,9 @@ public:
 
     [[nodiscard]] bool has_a_style_sheet_that_is_blocking_scripts() const;
 
+    bool embedder_document_start_scripts_ran() const { return m_embedder_document_start_scripts_ran; }
+    void set_embedder_document_start_scripts_ran() { m_embedder_document_start_scripts_ran = true; }
+
     bool is_fully_active() const
     {
         // Whether a document is fully active rarely changes, so the answer is kept until invalidate_full_activity().
@@ -2147,6 +2150,7 @@ private:
 
     // The answer is_fully_active() last gave, and the value of s_full_activity_epoch it's valid for.
     mutable bool m_is_fully_active { false };
+    bool m_embedder_document_start_scripts_ran { false };
     mutable u64 m_full_activity_epoch { 0 };
     static u64 s_full_activity_epoch;
 

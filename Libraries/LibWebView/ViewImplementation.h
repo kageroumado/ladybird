@@ -660,6 +660,8 @@ public:
         Optional<String> network_error;
     };
     Function<void(NavigationResponse const&)> on_navigation_response;
+    // A page of the tab started the download with this number in the file downloader.
+    Function<void(u64 download_id)> on_page_started_download;
     // Whether the page asking for the view that on_new_web_view is making had the user's activation as it asked.
     bool new_web_view_request_has_user_activation() const { return m_new_web_view_request_has_user_activation; }
     void set_new_web_view_request_has_user_activation(Badge<WebContentPage>, bool has_user_activation) { m_new_web_view_request_has_user_activation = has_user_activation; }

@@ -13,6 +13,9 @@ else()
 endif()
 
 set(ladybird_applications ladybird WebDriver ${ladybird_helper_processes})
+if (TARGET RefraxLadybirdHost)
+    list(APPEND ladybird_applications RefraxLadybirdHost)
+endif()
 
 # CMake installs the binaries unstripped when it has no strip tool, or ignores the failure to run it, for instance when
 # packaging in a different environment than the build. Refuse to install anything in that case. MSVC-style toolchains
@@ -50,6 +53,14 @@ install(TARGETS ${ladybird_helper_processes}
     COMPONENT ladybird_Runtime
     DESTINATION ${ladybird_helper_install_dir}
 )
+
+if (TARGET RefraxLadybirdHost)
+    install(TARGETS RefraxLadybirdHost
+      RUNTIME
+        COMPONENT ladybird_Runtime
+        DESTINATION ${ladybird_helper_install_dir}
+    )
+endif()
 
 include("${LADYBIRD_SOURCE_DIR}/Meta/CMake/get_linked_lagom_libraries.cmake")
 foreach (application IN LISTS ladybird_applications)

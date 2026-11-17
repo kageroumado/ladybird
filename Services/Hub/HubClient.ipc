@@ -279,6 +279,8 @@ endpoint HubClient
     external_url_launch(u64 handler_id, u64 request_id, URL::URL url) =|
     external_url_release_handler(u64 handler_id) =|
     download_added(Hub::DownloadState download) =|
+    // Follows download_added for a download that a page of the view started, for a UI that decides its navigations.
+    download_started_by_view(u64 download_id, u64 view_id) =|
     download_updated(Hub::DownloadState download) =|
     download_removed(u64 id, WebView::IsPrivate is_private) =|
     app_open_url_in_new_tab(URL::URL url, Web::HTML::ActivateTab activate_tab, Optional<u64> source_view_id, WebView::IsPrivate is_private) =|

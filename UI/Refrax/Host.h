@@ -97,8 +97,11 @@ struct StagedDownload {
     u64 id { 0 };
     NonnullRefPtr<HubLink> hub;
     u64 hub_download_id { 0 };
-    u64 page_id { 0 };
+    // The page that started it, once the Hub has named the view. Refrax hears of the download then.
+    Optional<u64> page_id {};
     ByteString staged_path;
+    URL::URL url {};
+    Optional<u64> total_size {};
     Optional<ByteString> destination {};
     bool is_complete { false };
     u64 reported_size { 0 };
@@ -132,7 +135,7 @@ public:
 
     void download_was_added(HubLink&, Hub::DownloadState const&);
     void download_was_updated(HubLink&, Hub::DownloadState const&);
-    void note_page_started_navigating(Page const& page) { m_page_of_latest_navigation = page.id; }
+    void download_was_started_by_view(HubLink&, u64 hub_download_id, u64 view_id);
     void hub_died(HubLink&);
 
     // Writes a frame's pixels to a file under the engine's storage and returns its path.
@@ -166,6 +169,7 @@ private:
     StagedDownload* staged_download(u64 id);
     void place_download_if_ready(StagedDownload&);
     void forget_download(u64 id);
+    void abandon_download(u64 id);
     ByteString download_staging_directory(String const& profile_key) const;
     void take_snapshot(Page&, u64 id);
 
@@ -173,6 +177,8 @@ private:
     static constexpr auto FIRST_FRAME_WAIT_LIMIT = AK::Duration::from_seconds(3);
     // How long a window that a page opened may take to start navigating before it is taken to open nothing.
     static constexpr auto POPUP_NAVIGATION_WAIT_LIMIT = AK::Duration::from_seconds(5);
+    // How long a staged download may go without the Hub naming the view that started it.
+    static constexpr auto DOWNLOAD_ATTRIBUTION_WAIT_LIMIT = AK::Duration::from_seconds(5);
 
     NonnullOwnPtr<Wire> m_wire;
     HashMap<u64, NonnullOwnPtr<Page>> m_pages;
@@ -186,8 +192,6 @@ private:
     u64 m_next_download_id { 1 };
     Vector<PendingPopup> m_pending_popups;
     Vector<StagedDownload> m_downloads;
-    // A download names no page, so it is taken to be of the page that navigated last.
-    u64 m_page_of_latest_navigation { 0 };
     bool m_started { false };
 };
 

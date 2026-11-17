@@ -167,8 +167,13 @@ void View::set_ui_decides_navigations(bool decides_navigations)
     if (!decides_navigations) {
         on_navigation_policy_request = nullptr;
         on_navigation_response = nullptr;
+        on_page_started_download = nullptr;
         return;
     }
+    on_page_started_download = [this](u64 download_id) {
+        if (auto* ui = ConnectionFromUI::the())
+            ui->async_download_started_by_view(download_id, view_id());
+    };
     on_navigation_response = [this](NavigationResponse const& response) {
         if (auto* ui = ConnectionFromUI::the())
             ui->async_view_navigation_response(view_id(), response.url_list, response.status, response.network_error);

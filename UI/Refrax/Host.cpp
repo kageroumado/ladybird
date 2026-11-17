@@ -347,12 +347,8 @@ void Host::close_page(Page& page)
         if (download.page_id == page.id && !download.destination.has_value())
             downloads_of_page.append(download.id);
     }
-    for (auto id : downloads_of_page) {
-        auto* download = staged_download(id);
-        download->hub->async_cancel_download(download->hub_download_id);
-        (void)FileSystem::remove(download->staged_path, FileSystem::RecursionMode::Disallowed);
-        forget_download(id);
-    }
+    for (auto id : downloads_of_page)
+        abandon_download(id);
     page.hub->async_destroy_view(page.view_id);
     m_pages.remove(page.id);
 }
@@ -379,9 +375,6 @@ void Host::handle_command(Page& page, JsonObject const& command)
         //     navigation that Refrax starts.
         if (name.is_one_of("load"sv, "goBack"sv, "goForward"sv, "reload"sv))
             cancel_pending_dialogs(page);
-
-        if (name.is_one_of("load"sv, "reload"sv))
-            note_page_started_navigating(page);
 
         if (name == "load"sv) {
             auto request = fields.get_object("request"sv);
@@ -424,11 +417,7 @@ void Host::handle_command(Page& page, JsonObject const& command)
             stop_finding(page);
         } else if (name == "cancelDownload"sv) {
             if (auto id = fields.get_u64("id"sv); id.has_value()) {
-                if (auto* download = staged_download(*id)) {
-                    download->hub->async_cancel_download(download->hub_download_id);
-                    (void)FileSystem::remove(download->staged_path, FileSystem::RecursionMode::Disallowed);
-                    forget_download(*id);
-                }
+                abandon_download(*id);
             }
         } else if (name == "setVisibility"sv) {
             auto hidden = fields.get_string("visibility"sv).value_or({}) == "hidden"sv;
@@ -539,47 +528,62 @@ void Host::forget_download(u64 id)
     m_downloads.remove_first_matching([&](auto const& download) { return download.id == id; });
 }
 
+// Stops the download and removes what it wrote. The Hub's report of the cancelled download finds nothing left of it.
+void Host::abandon_download(u64 id)
+{
+    auto* download = staged_download(id);
+    if (!download)
+        return;
+    download->hub->async_cancel_download(download->hub_download_id);
+    (void)FileSystem::remove(download->staged_path, FileSystem::RecursionMode::Disallowed);
+    forget_download(id);
+}
+
 void Host::download_was_added(HubLink& hub, Hub::DownloadState const& state)
 {
     // Only the downloads staged for Refrax are its to place.
     if (!state.destination.starts_with(download_staging_directory(hub.profile_key())))
         return;
 
-    // NB: The Hub names no page for a download. It is the page that navigated last, where that one is of this Hub.
-    Page* page = nullptr;
-    if (auto latest = m_pages.get(m_page_of_latest_navigation); latest.has_value() && (*latest)->hub.ptr() == &hub)
-        page = *latest;
-    if (!page) {
-        for (auto& entry : m_pages) {
-            if (entry.value->hub.ptr() == &hub) {
-                page = entry.value.ptr();
-                break;
-            }
-        }
-    }
-    if (!page) {
-        hub.async_cancel_download(state.id);
-        (void)FileSystem::remove(state.destination, FileSystem::RecursionMode::Disallowed);
+    auto id = m_next_download_id++;
+    m_downloads.append({ .id = id, .hub = hub, .hub_download_id = state.id, .staged_path = state.destination, .url = state.url, .total_size = state.total_size });
+
+    // NB: Refrax asks the user about a download in the page that started it. One that no view claims has no page to
+    //     ask in, and is never attributed to a page by guessing.
+    Core::Timer::create_single_shot(DOWNLOAD_ATTRIBUTION_WAIT_LIMIT, [this, id] {
+        if (auto* download = staged_download(id); download && !download->page_id.has_value())
+            abandon_download(id);
+    })->start();
+
+    download_was_updated(hub, state);
+}
+
+void Host::download_was_started_by_view(HubLink& hub, u64 hub_download_id, u64 view_id)
+{
+    auto index = m_downloads.find_first_index_if([&](auto const& download) { return download.hub.ptr() == &hub && download.hub_download_id == hub_download_id; });
+    if (!index.has_value())
+        return;
+    auto& download = m_downloads[*index];
+    auto* page = page_for_view(hub, view_id);
+    if (!page || download.page_id.has_value()) {
+        if (!page)
+            abandon_download(download.id);
         return;
     }
-
-    auto id = m_next_download_id++;
-    m_downloads.append({ .id = id, .hub = hub, .hub_download_id = state.id, .page_id = page->id, .staged_path = state.destination });
+    download.page_id = page->id;
 
     // The staged file's name is the suggested one after the download's number in the staging directory.
-    LexicalPath staged_path { state.destination };
+    LexicalPath staged_path { download.staged_path };
     auto staged_name = staged_path.basename();
     auto suggested_name = staged_name.find('-').map([&](auto index) { return staged_name.substring_view(index + 1); }).value_or(staged_name);
 
     JsonObject fields;
-    fields.set("id"sv, id);
-    fields.set("url"sv, state.url.serialize());
+    fields.set("id"sv, download.id);
+    fields.set("url"sv, download.url.serialize());
     fields.set("suggestedFilename"sv, suggested_name);
-    if (state.total_size.has_value())
-        fields.set("totalBytes"sv, *state.total_size);
-    emit_request(*page, { .kind = PendingRequest::Kind::Download, .answer_id = id }, "download"sv, move(fields));
-
-    download_was_updated(hub, state);
+    if (download.total_size.has_value())
+        fields.set("totalBytes"sv, *download.total_size);
+    emit_request(*page, { .kind = PendingRequest::Kind::Download, .answer_id = download.id }, "download"sv, move(fields));
 }
 
 void Host::download_was_updated(HubLink& hub, Hub::DownloadState const& state)
@@ -588,7 +592,7 @@ void Host::download_was_updated(HubLink& hub, Hub::DownloadState const& state)
     if (!index.has_value())
         return;
     auto& download = m_downloads[*index];
-    auto page = m_pages.get(download.page_id);
+    auto page = download.page_id.has_value() ? m_pages.get(*download.page_id) : Optional<Page*> {};
 
     using Status = WebView::FileDownloader::DownloadStatus;
     switch (state.status) {
@@ -630,7 +634,7 @@ void Host::place_download_if_ready(StagedDownload& download)
         return;
 
     auto moved = FileSystem::move_file(*download.destination, download.staged_path, FileSystem::PreserveMode::Nothing);
-    if (auto page = m_pages.get(download.page_id); page.has_value()) {
+    if (auto page = download.page_id.has_value() ? m_pages.get(*download.page_id) : Optional<Page*> {}; page.has_value()) {
         JsonObject fields;
         fields.set("id"sv, download.id);
         if (moved.is_error()) {

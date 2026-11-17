@@ -506,6 +506,11 @@ void HubLink::download_added(Hub::DownloadState download)
     m_host.download_was_added(*this, download);
 }
 
+void HubLink::download_started_by_view(u64 download_id, u64 view_id)
+{
+    m_host.download_was_started_by_view(*this, download_id, view_id);
+}
+
 void HubLink::download_updated(Hub::DownloadState download)
 {
     m_host.download_was_updated(*this, download);
@@ -519,7 +524,6 @@ void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, 
         async_view_answer(view_id, answer_id, !m_host.popup_did_start_navigating(*this, view_id, url));
         return;
     }
-    m_host.note_page_started_navigating(*page);
     auto kind = "other"sv;
     if (is_form_submission)
         kind = "formSubmission"sv;

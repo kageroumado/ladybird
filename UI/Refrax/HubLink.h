@@ -87,6 +87,7 @@ private:
     virtual void app_open_url_in_new_tab(URL::URL url, Web::HTML::ActivateTab activate_tab, Optional<u64> source_view_id, WebView::IsPrivate is_private) override;
     virtual void download_added(Hub::DownloadState download) override;
     virtual void download_updated(Hub::DownloadState download) override;
+    virtual void download_started_by_view(u64 download_id, u64 view_id) override;
     virtual void app_set_clipboard_text(String text, WebView::Application::ClipboardType type) override;
     virtual void app_read_clipboard_text(u64 request_id, WebView::Application::ClipboardType type) override;
 

@@ -2966,6 +2966,8 @@ Messages::WebContentClient::DidStartDownloadWithoutRequestResponse WebContentPag
         return { Optional<u64> {} };
 
     m_renderer_owned_downloads.set(download_id);
+    if (displays_tab() && view().on_page_started_download)
+        view().on_page_started_download(download_id);
 
     file_downloader.set_cancel_callback(download_id, [page = NonnullRefPtr<WebContentPage>(*this), download_id] {
         if (!page->is_open())
@@ -3041,6 +3043,8 @@ Messages::WebContentClient::DidStartDownloadResponse WebContentPage::did_start_d
         move(on_response_finished));
     if (!is_download_in_progress(file_downloader, download_id))
         return { Optional<u64> {} };
+    if (displays_tab() && view().on_page_started_download)
+        view().on_page_started_download(download_id);
 
     return { download_id };
 }

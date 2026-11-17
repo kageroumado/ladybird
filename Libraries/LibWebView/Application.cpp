@@ -1181,6 +1181,8 @@ ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(
     if (auto* webdriver_bidi = WebDriverBiDi::the(); webdriver_bidi && webdriver_bidi->session_state().is_active)
         webdriver_bidi->push_session_state_for_client(*client);
 
+    if (!m_embedder_procedural_runner.is_empty())
+        client->async_set_embedder_procedural_runner(m_embedder_procedural_runner);
     if (m_embedder_content_blocking.has_value()) {
         if (auto const& engine = m_embedder_content_blocking->engine; engine.has_value())
             client->async_set_embedder_content_blocker(engine->serialized, engine->resources);
@@ -2974,6 +2976,22 @@ ErrorOr<Application::EmbedderBlockingEngine, String> Application::read_embedder_
     return EmbedderBlockingEngine { move(serialized), move(resources), *engine->get_string("sha256"sv) };
 }
 
+void Application::set_embedder_procedural_runner(String source)
+{
+    m_embedder_procedural_runner = move(source);
+    WebContentClient::for_each_client([&](WebContentClient& client) {
+        client.async_set_embedder_procedural_runner(m_embedder_procedural_runner);
+        return IterationDecision::Continue;
+    });
+}
+
+Optional<String> Application::embedder_blocking_list_id(u32 source_index) const
+{
+    if (!m_embedder_content_blocking.has_value())
+        return {};
+    return m_embedder_content_blocking->list_ids.get(source_index).copy();
+}
+
 bool Application::reads_embedder_blocking_engine_format(JsonObject const& policy)
 {
     auto engine = policy.get_object("engine"sv);
@@ -3036,6 +3054,18 @@ void Application::set_embedder_content_blocking(StringView policy_json)
         hosts->for_each([&](JsonValue const& host) {
             if (host.is_string())
                 blocking.spared_hosts.append(host.as_string());
+        });
+    }
+
+    blocking.list_ids.clear();
+    if (auto lists = policy.get_array("lists"sv); lists.has_value()) {
+        lists->for_each([&](JsonValue const& list) {
+            if (!list.is_object())
+                return;
+            auto id = list.as_object().get_string("id"sv);
+            auto source_index = list.as_object().get_u32("sourceIndex"sv);
+            if (id.has_value() && source_index.has_value())
+                blocking.list_ids.set(*source_index, *id);
         });
     }
 

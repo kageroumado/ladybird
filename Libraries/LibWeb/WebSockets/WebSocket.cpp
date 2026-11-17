@@ -37,8 +37,10 @@
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/WindowOrWorkerGlobalScope.h>
 #include <LibWeb/HighResolutionTime/TimeOrigin.h>
+#include <LibWeb/Loader/ContentBlocker.h>
 #include <LibWeb/Loader/LoaderConfig.h>
 #include <LibWeb/Loader/ResourceLoader.h>
+#include <LibWeb/Page/Page.h>
 #include <LibWeb/MixedContent/AbstractOperations.h>
 #include <LibWeb/Platform/EventLoopPlugin.h>
 #include <LibWeb/UpgradeInsecureRequests/AbstractOperations.h>
@@ -219,6 +221,16 @@ ErrorOr<void> WebSocket::establish_web_socket_connection(URL::URL const& url_rec
     //         "wss".
     auto connection_url = request->current_url();
     connection_url.set_scheme(connection_url.scheme() == "http"sv ? "ws"sv : "wss"sv);
+
+    // AD-HOC: The embedder's blocking engine decides a WebSocket's connection as it decides every other request.
+    if (auto& page = Bindings::principal_host_defined_page(client.realm()); ContentBlocker::the().embedder_decides() && page.content_blocking_enabled_for_url(client.top_level_creation_url)) {
+        auto const& source_url = client.creation_url;
+        if (auto decision = ContentBlocker::the().embedder_decision(connection_url, source_url, ContentBlocker::ResourceType::WebSocket, "GET"sv); decision.has_value()) {
+            page.client().page_did_decide_content_blocking(decision->log_entry, source_url);
+            if (decision->action == ContentBlocker::EmbedderDecision::Action::Block || decision->action == ContentBlocker::EmbedderDecision::Action::Redirect)
+                return Error::from_string_literal("WebSocket connection was blocked");
+        }
+    }
 
     if (m_has_disappeared)
         return Error::from_string_literal("The document of the WebSocket was unloaded before it connected");

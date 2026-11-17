@@ -319,6 +319,7 @@ endpoint HubClient
     // Sent along with view_request_navigation, to a UI that turned that on.
     view_navigation_response(u64 view_id, Vector<URL::URL> url_list, Optional<u16> status, Optional<String> network_error) =|
     // Asked only of a UI that turned it on with view_set_decides_navigations, and answered with view_answer.
+    view_did_get_content_blocking_log(u64 view_id, u64 request_id, String log_json) =|
     view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin) =|
     view_request_external_url_confirmation(u64 view_id, u64 answer_id, URL::URL url, URL::Origin initiator_origin, String application_name) =|
     view_request_permission(u64 view_id, u64 answer_id, WebView::PermissionPromptRequest request) =|

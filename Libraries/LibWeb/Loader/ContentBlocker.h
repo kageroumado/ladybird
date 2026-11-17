@@ -55,6 +55,34 @@ public:
     // From its first word on, only its engine filters; without one, nothing is filtered.
     bool embedder_decides() const { return m_embedder_decides.load(AK::MemoryOrder::memory_order_relaxed); }
     ErrorOr<void> set_embedder_engine(ReadonlyBytes serialized, ReadonlyBytes resources_json);
+
+    // What the embedder's engine does with one request.
+    struct EmbedderDecision {
+        enum class Action : u8 {
+            Allow,
+            Block,
+            // Answer with the resource `url` holds, a data: URL, in place of loading.
+            Redirect,
+            // Load `url` in the request's place.
+            Rewrite,
+        };
+        Action action { Action::Allow };
+        Optional<URL::URL> url;
+        // What the embedder's request log says of the decision: the JSON object of the engine contract's log entry,
+        // less what only the browser process knows of it.
+        String log_entry;
+    };
+    // Nothing while the embedder's engine decides nothing: none is loaded, or the URL is one it never filters.
+    Optional<EmbedderDecision> embedder_decision(URL::URL const&, URL::URL const& source_url, ResourceType, StringView method) const;
+    // The Content-Security-Policy the embedder's engine adds to a document's response, or nothing.
+    String embedder_csp_directives(URL::URL const&, URL::URL const& source_url, ResourceType) const;
+    // The scriptlets and procedural filters the embedder's engine has for a document at the URL, as the JSON object
+    // {"script", "procedural": [JSON-encoded filter]}, or nothing.
+    ByteString embedder_page_resources(URL::URL const&) const;
+    // The script that applies the engine's procedural filters to a page, which the embedder supplies. It defines
+    // shieldsApplyProcedural(filters).
+    void set_embedder_procedural_runner(String source);
+    String embedder_procedural_runner() const;
     void clear_embedder_engine();
 
     bool is_filtered(URL::URL const&) const;
@@ -81,6 +109,7 @@ private:
     Atomic<void*> m_engine { nullptr };
     Atomic<void*> m_embedder_engine { nullptr };
     Atomic<bool> m_embedder_decides { false };
+    String m_embedder_procedural_runner;
 
     void* active_engine() const
     {

@@ -3425,6 +3425,11 @@ void ConnectionFromClient::set_embedder_content_blocker(Core::AnonymousBuffer se
     m_page_host->invalidate_user_style();
 }
 
+void ConnectionFromClient::set_embedder_procedural_runner(String source)
+{
+    Web::ContentBlocker::the().set_embedder_procedural_runner(move(source));
+}
+
 void ConnectionFromClient::clear_embedder_content_blocker()
 {
     Web::ContentBlocker::the().clear_embedder_engine();

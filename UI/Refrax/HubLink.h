@@ -89,6 +89,10 @@ private:
     virtual void download_added(Hub::DownloadState download) override;
     virtual void download_updated(Hub::DownloadState download) override;
     virtual void download_started_by_view(u64 download_id, u64 view_id) override;
+    virtual void view_accessibility_tree_received(u64 view_id, u64 sequence, Vector<WebView::AccessibilityNodeData> nodes) override;
+    virtual void view_accessibility_tree_changed(u64 view_id, u64 base_sequence, u64 sequence, WebView::AccessibilityTreeDelta delta) override;
+    virtual void view_accessibility_focus_changed(u64 view_id, i64 node_id) override;
+    virtual void view_did_get_content_blocking_log(u64 view_id, u64 request_id, String log_json) override;
     virtual void notification_show(u64 id, u64 page_id, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String attribution, Optional<Gfx::ShareableBitmap> icon, u64 view_id, String origin) override;
     virtual void notification_close(u64 id) override;
     virtual void app_set_clipboard_text(String text, WebView::Application::ClipboardType type) override;

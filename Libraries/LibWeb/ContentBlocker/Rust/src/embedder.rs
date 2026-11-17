@@ -18,7 +18,7 @@ pub struct EmbedderBlockerEngine {
 }
 
 /// What the engine says of one request, as a JSON object:
-///   {"block": bool, "redirect"?: data URL, "rewritten"?: URL, "important": bool, "rule"?: rule, "exception"?: rule}
+///   {"block": bool, "matched": bool, "redirect"?: data URL, "rewritten"?: URL, "important": bool, "rule"?: rule, "exception"?: rule}
 /// where a rule is adblock-rust's FilterRuleDebugInfo: the filter's text and where its list has it, as far as the
 /// engine kept them.
 /// A blocked request with `redirect` is answered with that resource. One with `rewritten` loads that URL instead.
@@ -26,6 +26,7 @@ fn decision_json(engine: &EmbedderBlockerEngine, request: &Request) -> String {
     let result = engine.engine.check_network_request(request);
     let mut decision = serde_json::Map::new();
     decision.insert("block".into(), result.should_block().into());
+    decision.insert("matched".into(), result.filter.is_some().into());
     decision.insert("important".into(), result.important.into());
     if let Some(redirect) = result.redirect {
         decision.insert("redirect".into(), redirect.into());
@@ -40,6 +41,26 @@ fn decision_json(engine: &EmbedderBlockerEngine, request: &Request) -> String {
         decision.insert("exception".into(), exception);
     }
     serde_json::Value::Object(decision).to_string()
+}
+
+/// The style rule that does what a procedural or action filter does, where one can: a filter that is one CSS selector
+/// and hides what it selects or gives it a style. Every other filter needs the page's procedural runner.
+fn style_rule_for_action_filter(filter_json: &str) -> Option<String> {
+    let filter: serde_json::Value = serde_json::from_str(filter_json).ok()?;
+    let [operator] = filter.get("selector")?.as_array()?.as_slice() else {
+        return None;
+    };
+    if operator.get("type")?.as_str()? != "css-selector" {
+        return None;
+    }
+    let selector = operator.get("arg")?.as_str()?;
+    match filter.get("action") {
+        None | Some(serde_json::Value::Null) => Some(format!("{selector} {{ display: none !important; }}\n")),
+        Some(action) if action.get("type")?.as_str()? == "style" => {
+            Some(format!("{selector} {{ {} }}\n", action.get("arg")?.as_str()?))
+        }
+        Some(_) => None,
+    }
 }
 
 fn cosmetic_css_for_url(engine: &EmbedderBlockerEngine, url: &str, classes: &[&str], ids: &[&str]) -> String {
@@ -59,6 +80,15 @@ fn cosmetic_css_for_url(engine: &EmbedderBlockerEngine, url: &str, classes: &[&s
     for selector in selectors {
         css.push_str(&selector);
         css.push_str(" { display: none !important; }\n");
+    }
+    let mut style_rules: Vec<String> = resources
+        .procedural_actions
+        .iter()
+        .filter_map(|filter| style_rule_for_action_filter(filter))
+        .collect();
+    style_rules.sort_unstable();
+    for rule in style_rules {
+        css.push_str(&rule);
     }
     css
 }
@@ -187,6 +217,7 @@ pub extern "C" fn rust_embedder_blocker_has_generic_cosmetic_selectors(
 
 /// The scripts and procedural filters the engine has for a document at `url`, as a JSON object:
 ///   {"script": scriptlets to run in the page's world, "procedural": [JSON-encoded procedural filter]}
+/// The filters are the ones no style rule can do, which the page's procedural runner applies.
 /// C++ frees the returned string with `rust_content_blocker_free_string`.
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_embedder_blocker_page_resources(
@@ -198,7 +229,11 @@ pub extern "C" fn rust_embedder_blocker_page_resources(
             return string_to_ffi(String::new());
         };
         let resources = engine.engine.url_cosmetic_resources(url);
-        let mut procedural: Vec<String> = resources.procedural_actions.into_iter().collect();
+        let mut procedural: Vec<String> = resources
+            .procedural_actions
+            .into_iter()
+            .filter(|filter| style_rule_for_action_filter(filter).is_none())
+            .collect();
         procedural.sort_unstable();
         let mut object = serde_json::Map::new();
         object.insert("script".into(), resources.injected_script.into());

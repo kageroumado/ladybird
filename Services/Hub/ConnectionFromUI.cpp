@@ -450,6 +450,11 @@ void ConnectionFromUI::set_embedder_site_settings(String settings_json)
     Application::the().set_embedder_site_settings(move(settings_json));
 }
 
+void ConnectionFromUI::set_embedder_procedural_runner(String source)
+{
+    Application::the().set_embedder_procedural_runner(move(source));
+}
+
 void ConnectionFromUI::set_embedder_content_blocking(String policy_json)
 {
     Application::the().set_embedder_content_blocking(policy_json);
@@ -486,6 +491,12 @@ void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String 
 void ConnectionFromUI::set_download_staging_directory(ByteString directory)
 {
     Application::the().set_download_staging_directory(move(directory));
+}
+
+void ConnectionFromUI::view_request_content_blocking_log(u64 view_id, u64 request_id, u64 since)
+{
+    auto* view = find_view(view_id);
+    async_view_did_get_content_blocking_log(view_id, request_id, view ? view->content_blocking_log_since(since) : "{\"entries\":[],\"nextSequence\":0}"_string);
 }
 
 void ConnectionFromUI::view_set_media_suspended(u64 view_id, bool suspended)

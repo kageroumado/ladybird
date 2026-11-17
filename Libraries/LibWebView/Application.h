@@ -135,6 +135,10 @@ public:
     // only one that filters, for the sites it doesn't spare. A policy whose engine is no use leaves the engine
     // before it in place.
     void set_embedder_content_blocking(StringView policy_json);
+    // The script that applies procedural filters to a page, for the embedder's blocking engine.
+    void set_embedder_procedural_runner(String source);
+    // The embedder's name for the list its engine numbers so, for its request log.
+    Optional<String> embedder_blocking_list_id(u32 source_index) const;
     // Every notification decision the embedder holds, as the JSON object of the engine contract's notifications
     // policy. From the first one on, the embedder's lists are the only source of notification permission.
     void set_embedder_notification_policy(StringView policy_json);
@@ -728,8 +732,10 @@ private:
         bool enabled { false };
         Optional<EmbedderBlockingEngine> engine;
         Vector<String> spared_hosts;
+        HashMap<u32, String> list_ids;
     };
     Optional<EmbedderContentBlocking> m_embedder_content_blocking;
+    String m_embedder_procedural_runner;
     Vector<String> embedder_content_blocking_spared_hosts() const;
     void apply_embedder_content_blocking();
     struct EmbedderChannel {

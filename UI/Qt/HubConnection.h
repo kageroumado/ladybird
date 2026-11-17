@@ -85,6 +85,7 @@ private:
     virtual void app_open_new_window(Vector<URL::URL> urls) override;
     virtual void view_selected_text(u64 view_id, u64 request_id, Optional<ByteString> text) override;
     virtual void view_did_evaluate_script(u64, u64, Optional<String>, Optional<String>) override { }
+    virtual void view_did_get_content_blocking_log(u64, u64, String) override { }
     virtual void view_request_navigation(u64, u64, URL::URL, bool, bool, Web::HTML::UserNavigationInvolvement, Optional<URL::Origin>) override { }
     virtual void view_navigation_response(u64, Vector<URL::URL>, Optional<u16>, Optional<String>) override { }
     virtual void download_started_by_view(u64, u64) override { }

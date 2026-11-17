@@ -12,7 +12,9 @@
 #include <AK/NonnullRefPtr.h>
 #include <AK/String.h>
 #include <Hub/HubClientEndpoint.h>
+#include <LibCore/Timer.h>
 #include <LibGfx/Size.h>
+#include <LibWebView/AccessibilityTreeManager.h>
 #include <UI/Refrax/HubLink.h>
 #include <UI/Refrax/Wire.h>
 
@@ -75,6 +77,11 @@ struct Page {
     bool has_frame { false };
     Vector<u64> snapshots_awaiting_frame {};
 
+    // The page's accessibility tree, held from when Refrax first asks for it.
+    bool accessibility_is_wanted { false };
+    bool accessibility_update_is_scheduled { false };
+    WebView::AccessibilityTreeManager accessibility {};
+
     // The search under way, which a find for the next match continues.
     bool find_is_active { false };
     size_t find_results_to_skip { 0 };
@@ -119,12 +126,18 @@ public:
 
     Page* page_for_view(HubLink const&, u64 view_id);
 
+    // Runs the function once the delay has passed. A timer nothing holds never fires, so the host holds each of
+    // its own until it has.
+    void run_after(AK::Duration delay, Function<void()>);
+
     void emit_event(Page const&, StringView name, JsonObject fields);
     void emit_request(Page&, PendingRequest, StringView name, JsonObject fields);
 
     // A page of the Hub showed a notification, which Refrax hears of under an id of this host's. False when no page
     // of Refrax's shows that view.
     bool show_notification(HubLink&, u64 hub_notification_id, u64 view_id, Web::NotificationsAPI::NotificationData const&, String const& origin);
+    // The page's accessibility tree changed: Refrax gets the whole of it, soon, however many changes come first.
+    void accessibility_tree_did_change(Page&);
     // The page closed its notification, or showed another in its place.
     void page_closed_notification(HubLink&, u64 hub_notification_id);
     void send(StringView name, JsonObject fields) { m_wire->send(name, move(fields)); }
@@ -189,6 +202,8 @@ private:
     static constexpr u64 MOUSE_INPUT_ID_BIT = 1ull << 62;
 
     // How long a snapshot waits for a page that has shown nothing yet.
+    // How long changes to a page's accessibility tree gather before Refrax is told of them.
+    static constexpr auto ACCESSIBILITY_UPDATE_DELAY = AK::Duration::from_milliseconds(100);
     static constexpr auto FIRST_FRAME_WAIT_LIMIT = AK::Duration::from_seconds(3);
     // How long a window that a page opened may take to start navigating before it is taken to open nothing.
     static constexpr auto POPUP_NAVIGATION_WAIT_LIMIT = AK::Duration::from_seconds(5);
@@ -208,6 +223,8 @@ private:
     String m_site_settings_json;
     // Every notification decision Refrax holds, as the JSON object of its policy.
     String m_notification_policy_json;
+    // The script that applies procedural filters to a page, from the engine bundle.
+    String m_procedural_runner;
     // Refrax's content blocking, as the JSON object of its policy, and the engine file that filters by it.
     String m_content_blocking_policy_json;
     Optional<String> m_blocking_engine_sha256;
@@ -219,6 +236,8 @@ private:
     };
     HashMap<String, ShownNotification> m_notifications;
     u64 m_next_notification_id { 1 };
+    HashMap<u64, NonnullRefPtr<Core::Timer>> m_timers;
+    u64 m_next_timer_id { 1 };
     u64 m_next_request_id { 1 };
     u64 m_next_input_id { 1 };
     u64 m_next_download_id { 1 };

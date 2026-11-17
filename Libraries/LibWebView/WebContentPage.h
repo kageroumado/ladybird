@@ -256,6 +256,7 @@ private:
     virtual void did_post_embedder_message(u64 message_id, Optional<String> world, String channel, String body_json, Web::HTML::CrossProcessId document_id) override;
     virtual void did_output_js_console_message(ConsoleOutput console_output) override;
     virtual void did_block_resource(URL::URL url, String kind) override;
+    virtual void did_decide_content_blocking(String entry, URL::URL frame_url) override;
     virtual void did_start_network_request(u64 request_id, URL::URL url, ByteString method, Vector<HTTP::Header> request_headers, ByteBuffer request_body, Optional<String> initiator_type, String referrer_policy, bool is_navigation_request, Web::Fetch::Infrastructure::RequestPriority priority) override;
     virtual void did_receive_network_response_body(u64 request_id, ByteBuffer data) override;
     virtual void did_finish_network_request(u64 request_id, u64 body_size, Requests::RequestTimingInfo timing_info, Optional<Requests::NetworkError> network_error) override;

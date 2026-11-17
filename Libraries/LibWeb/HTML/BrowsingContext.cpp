@@ -12,6 +12,7 @@
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/Range.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/BrowsingContext.h>
 #include <LibWeb/HTML/CustomElements/CustomElementRegistry.h>
 #include <LibWeb/HTML/HTMLDocument.h>
@@ -268,6 +269,17 @@ BrowsingContext::BrowsingContextAndDocument BrowsingContext::create_a_new_browsi
 
     // 23. Make active document.
     document->make_active();
+
+    // AD-HOC: The embedder's document-start scripts reach a frame's initial empty document as it is made, before
+    //         the page that made the frame can reach into it. A frame that names a document to load goes to it at
+    //         once and keeps this window for it when it is the page's own, so the scripts run there, once.
+    auto navigates_at_once = false;
+    if (embedder) {
+        auto source = embedder->get_attribute(AttributeNames::src);
+        navigates_at_once = embedder->has_attribute(AttributeNames::srcdoc) || (source.has_value() && !source->is_empty() && *source != "about:blank"sv);
+    }
+    if (!navigates_at_once)
+        run_embedder_scripts(*document, EmbedderScript::InjectionTime::DocumentStart);
 
     // 24. Completely finish loading document.
     document->completely_finish_loading();

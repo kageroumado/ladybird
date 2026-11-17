@@ -106,10 +106,12 @@ private:
     virtual void set_embedder_site_settings(String settings_json) override;
     virtual void set_embedder_notification_policy(String policy_json) override;
     virtual void set_embedder_content_blocking(String policy_json) override;
+    virtual void set_embedder_procedural_runner(String source) override;
     virtual void view_embedder_message_reply(u64 view_id, u64 message_id, Optional<String> value_json, Optional<String> error) override;
     virtual void view_set_decides_navigations(u64 view_id, bool decides_navigations) override;
     virtual void view_set_zoom(u64 view_id, double zoom_level) override;
     virtual void view_set_media_suspended(u64 view_id, bool suspended) override;
+    virtual void view_request_content_blocking_log(u64 view_id, u64 request_id, u64 since) override;
     virtual void set_download_staging_directory(ByteString directory) override;
     virtual void view_request_close_preflight(u64 view_id, u64 request_id) override;
     virtual void view_request_page_dumps(u64 view_id, u64 request_id) override;

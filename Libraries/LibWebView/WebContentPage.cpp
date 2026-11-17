@@ -1376,6 +1376,11 @@ void WebContentPage::did_output_js_console_message(ConsoleOutput console_output)
     }
 }
 
+void WebContentPage::did_decide_content_blocking(String entry, URL::URL frame_url)
+{
+    view().log_content_blocking_decision({}, entry, frame_url);
+}
+
 void WebContentPage::did_block_resource(URL::URL url, String kind)
 {
     view().did_block_resource({}, url, kind);

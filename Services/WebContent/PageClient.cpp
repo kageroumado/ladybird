@@ -2552,6 +2552,11 @@ void PageClient::received_message_from_web_ui(Utf16String const& name, JS::Value
         m_web_ui->received_message_from_web_ui(name, data);
 }
 
+void PageClient::page_did_decide_content_blocking(String const& entry, URL::URL const& frame_url)
+{
+    client().async_did_decide_content_blocking(id(), entry, frame_url);
+}
+
 void PageClient::page_did_block_resource(URL::URL const& url, StringView kind)
 {
     client().async_did_block_resource(id(), url, MUST(String::from_utf8(kind)));

@@ -2714,6 +2714,90 @@ static StringView known_blocked_resource_kind(StringView kind)
     return "Request"sv;
 }
 
+void ViewImplementation::log_content_blocking_decision(Badge<WebContentPage>, StringView entry_json, URL::URL const& frame_url)
+{
+    static constexpr size_t maximum_entries = 2000;
+    static constexpr size_t maximum_bytes = 2 * MiB;
+    static constexpr size_t maximum_text_bytes = 2 * KiB;
+
+    // NB: The renderer writes the entry, and may be compromised. The log takes the fields it knows from it, each
+    //     of the kind it expects and no longer than the log allows.
+    auto parsed = JsonValue::from_string(entry_json);
+    if (parsed.is_error() || !parsed.value().is_object())
+        return;
+    auto const& reported = parsed.value().as_object();
+
+    JsonObject entry;
+    auto truncated = false;
+    auto set_text = [&](StringView key, StringView text) {
+        if (text.length() > maximum_text_bytes) {
+            truncated = true;
+            auto length = maximum_text_bytes;
+            // A cut never splits a code point.
+            while (length > 0 && (static_cast<u8>(text[length]) & 0xC0) == 0x80)
+                --length;
+            text = text.substring_view(0, length);
+        }
+        entry.set(key, text);
+    };
+    auto copy_text = [&](StringView key) {
+        if (auto text = reported.get_string(key); text.has_value())
+            set_text(key, *text);
+    };
+
+    entry.set("seq"sv, ++m_content_blocking_log_sequence);
+    entry.set("time"sv, static_cast<double>(UnixDateTime::now().milliseconds_since_epoch()) / 1000.0);
+    set_text("frameURL"sv, frame_url.serialize());
+    copy_text("url"sv);
+    copy_text("type"sv);
+    copy_text("method"sv);
+    copy_text("decision"sv);
+    copy_text("rewrittenURL"sv);
+    copy_text("csp"sv);
+    copy_text("rule"sv);
+    copy_text("exceptionRule"sv);
+    if (auto source_index = reported.get_u32("sourceIndex"sv); source_index.has_value()) {
+        if (auto list = Application::the().embedder_blocking_list_id(*source_index); list.has_value())
+            entry.set("list"sv, *list);
+    }
+    if (auto line = reported.get_u32("line"sv); line.has_value())
+        entry.set("line"sv, *line);
+    entry.set("exactness"sv, "exact"sv);
+    if (truncated)
+        entry.set("truncated"sv, true);
+
+    auto json = entry.serialized();
+    m_content_blocking_log_bytes += json.bytes_as_string_view().length();
+    m_content_blocking_log.append({ m_content_blocking_log_sequence, move(json) });
+    while (m_content_blocking_log.size() > maximum_entries || m_content_blocking_log_bytes > maximum_bytes) {
+        auto oldest = m_content_blocking_log.take_first();
+        m_content_blocking_log_bytes -= oldest.json.bytes_as_string_view().length();
+    }
+}
+
+String ViewImplementation::content_blocking_log_since(u64 since) const
+{
+    static constexpr size_t maximum_answer_bytes = 3 * MiB;
+
+    StringBuilder builder;
+    builder.append("{\"entries\":["sv);
+    auto next_sequence = since;
+    auto is_first = true;
+    for (auto const& entry : m_content_blocking_log) {
+        if (entry.sequence <= since)
+            continue;
+        if (builder.length() + entry.json.bytes_as_string_view().length() > maximum_answer_bytes)
+            break;
+        if (!is_first)
+            builder.append(',');
+        is_first = false;
+        builder.append(entry.json);
+        next_sequence = entry.sequence;
+    }
+    builder.appendff("],\"nextSequence\":{}}}", next_sequence);
+    return builder.to_string_without_validation();
+}
+
 void ViewImplementation::did_block_resource(Badge<WebContentPage>, URL::URL const& url, StringView kind)
 {
     if (m_blocked_resources.size() >= MAX_BLOCKED_RESOURCES)

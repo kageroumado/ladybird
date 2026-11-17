@@ -206,6 +206,143 @@ void ContentBlocker::clear_embedder_engine()
     m_embedder_decides = true;
 }
 
+// The request type as the embedder's request log names it: adblock-rust's names, with the two kinds of document
+// under their webRequest names.
+static StringView embedder_log_request_type(ContentBlocker::ResourceType type)
+{
+    switch (type) {
+    case ContentBlocker::ResourceType::Document:
+        return "main_frame"sv;
+    case ContentBlocker::ResourceType::Subdocument:
+        return "sub_frame"sv;
+    default:
+        return resource_type_to_adblock_request_type(type);
+    }
+}
+
+Optional<ContentBlocker::EmbedderDecision> ContentBlocker::embedder_decision(URL::URL const& url, URL::URL const& source_url, ResourceType resource_type, StringView method) const
+{
+    if (!embedder_decides() || url.scheme() == "data"sv)
+        return {};
+
+    auto url_string = serialized_url_for_matching(url);
+    auto source_url_string = serialized_url_for_matching(source_url_for_matching(source_url));
+    auto request_type = resource_type_to_adblock_request_type(resource_type);
+
+    ByteString decision_json;
+    {
+        MutexLocker locker(m_mutex);
+        auto* engine = m_embedder_engine.load();
+        if (!engine)
+            return {};
+        decision_json = take_rust_string(ContentBlocking::FFI::rust_embedder_blocker_decide(
+            engine,
+            url_string.bytes(),
+            source_url_string.bytes(),
+            request_type.bytes(),
+            method.bytes()));
+    }
+    auto parsed = JsonValue::from_string(decision_json);
+    if (parsed.is_error() || !parsed.value().is_object())
+        return {};
+    auto const& result = parsed.value().as_object();
+
+    EmbedderDecision decision;
+    auto name = "allowed"sv;
+    if (result.get_bool("block"sv).value_or(false)) {
+        decision.action = EmbedderDecision::Action::Block;
+        name = "blocked"sv;
+        if (auto redirect = result.get_string("redirect"sv); redirect.has_value()) {
+            if (auto resource = URL::Parser::basic_parse(*redirect); resource.has_value() && resource->scheme() == "data"sv) {
+                decision.action = EmbedderDecision::Action::Redirect;
+                decision.url = resource.release_value();
+                name = "redirected"sv;
+            }
+        }
+    } else if (auto rewritten = result.get_string("rewritten"sv); rewritten.has_value()) {
+        if (auto rewritten_url = URL::Parser::basic_parse(*rewritten); rewritten_url.has_value()) {
+            decision.action = EmbedderDecision::Action::Rewrite;
+            decision.url = rewritten_url.release_value();
+            name = "rewritten"sv;
+        }
+    } else if (result.get_bool("matched"sv).value_or(false) && result.has_object("exception"sv)) {
+        name = "excepted"sv;
+    }
+
+    JsonObject entry;
+    entry.set("url"sv, url.serialize());
+    entry.set("type"sv, embedder_log_request_type(resource_type));
+    entry.set("method"sv, method);
+    entry.set("decision"sv, name);
+    if (decision.action == EmbedderDecision::Action::Rewrite)
+        entry.set("rewrittenURL"sv, decision.url->serialize());
+    // NB: The rule a log entry names is the one that decided: the blocking filter, or the exception where no
+    //     filter of the engine blocks.
+    auto rule = result.get_object("rule"sv);
+    auto exception = result.get_object("exception"sv);
+    if (auto const& named = rule.has_value() ? rule : exception; named.has_value()) {
+        if (auto text = named->get_string("raw_line"sv); text.has_value())
+            entry.set("rule"sv, *text);
+        if (auto location = named->get_object("source_location"sv); location.has_value()) {
+            if (auto source_index = location->get_u32("source_index"sv); source_index.has_value())
+                entry.set("sourceIndex"sv, *source_index);
+            if (auto line = location->get_u32("line_number"sv); line.has_value())
+                entry.set("line"sv, *line);
+        }
+    }
+    if (rule.has_value() && exception.has_value()) {
+        if (auto text = exception->get_string("raw_line"sv); text.has_value())
+            entry.set("exceptionRule"sv, *text);
+    }
+    decision.log_entry = entry.serialized();
+    return decision;
+}
+
+String ContentBlocker::embedder_csp_directives(URL::URL const& url, URL::URL const& source_url, ResourceType resource_type) const
+{
+    if (!embedder_decides())
+        return {};
+    auto url_string = serialized_url_for_matching(url);
+    auto source_url_string = serialized_url_for_matching(source_url_for_matching(source_url));
+    auto request_type = resource_type_to_adblock_request_type(resource_type);
+
+    MutexLocker locker(m_mutex);
+    auto* engine = m_embedder_engine.load();
+    if (!engine)
+        return {};
+    auto directives = take_rust_string(ContentBlocking::FFI::rust_embedder_blocker_csp_directives(
+        engine,
+        url_string.bytes(),
+        source_url_string.bytes(),
+        request_type.bytes()));
+    return String::from_utf8_with_replacement_character(directives.view());
+}
+
+ByteString ContentBlocker::embedder_page_resources(URL::URL const& url) const
+{
+    if (!embedder_decides())
+        return {};
+    auto url_string = serialized_url(url);
+
+    MutexLocker locker(m_mutex);
+    auto* engine = m_embedder_engine.load();
+    if (!engine)
+        return {};
+    return take_rust_string(ContentBlocking::FFI::rust_embedder_blocker_page_resources(engine, url_string.bytes()));
+}
+
+void ContentBlocker::set_embedder_procedural_runner(String source)
+{
+    MutexLocker locker(m_mutex);
+    m_embedder_procedural_runner = move(source);
+}
+
+String ContentBlocker::embedder_procedural_runner() const
+{
+    MutexLocker locker(m_mutex);
+    return m_embedder_procedural_runner;
+}
+
 bool ContentBlocker::is_filtered(URL::URL const& url) const
 {
     return is_filtered(url, url, ResourceType::Other);

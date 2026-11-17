@@ -490,6 +490,12 @@ public:
     void request_style_sheet_source(Web::CSS::StyleSheetIdentifier const&);
 
     void did_block_resource(Badge<WebContentPage>, URL::URL const&, StringView kind);
+
+    // The embedder's request log: what its blocking engine decided for this tab's requests, newest last, each as the
+    // JSON object of the engine contract's log entry. It keeps the newest entries, by count and by size.
+    void log_content_blocking_decision(Badge<WebContentPage>, StringView entry_json, URL::URL const& frame_url);
+    // The entries numbered after `since`, oldest first, as the engine contract's answer: {"entries", "nextSequence"}.
+    String content_blocking_log_since(u64 since) const;
     void reset_blocked_resources();
     void notify_content_blocking_changed();
     ContentBlockingSnapshot content_blocking_snapshot() const;
@@ -988,6 +994,13 @@ protected:
     double m_zoom_level { 1.0 };
     bool m_embedder_keeps_zoom { false };
     bool m_media_suspended { false };
+    struct ContentBlockingLogEntry {
+        u64 sequence { 0 };
+        String json;
+    };
+    Vector<ContentBlockingLogEntry> m_content_blocking_log;
+    size_t m_content_blocking_log_bytes { 0 };
+    u64 m_content_blocking_log_sequence { 0 };
     bool m_new_web_view_request_has_user_activation { false };
     double m_device_pixel_ratio { 1.0 };
     Optional<u64> m_display_id;

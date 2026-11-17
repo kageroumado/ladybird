@@ -7,6 +7,7 @@
 
 #include <AK/AllOf.h>
 #include <AK/Debug.h>
+#include <AK/JsonObject.h>
 #include <AK/NeverDestroyed.h>
 #include <LibCore/Directory.h>
 #include <LibCore/MimeData.h>
@@ -29,6 +30,7 @@
 #include <LibWeb/Page/Page.h>
 #include <LibWeb/Platform/EventLoopPlugin.h>
 #include <LibWeb/Platform/Timer.h>
+#include <LibWebCommon/Fetch/Infrastructure/DataURL.h>
 #include <LibWebCommon/Loader/UserAgent.h>
 
 namespace Web {
@@ -304,7 +306,9 @@ static StringView blocked_resource_kind(LoadRequest const& request)
     VERIFY_NOT_REACHED();
 }
 
-static bool should_block_request(LoadRequest const& request)
+// Whether the request is to fail. One that the embedder's blocking engine answers with a resource of its own comes
+// back in `answer`, a data: URL, and one it loads from another URL has that URL from here on.
+static bool should_block_request(LoadRequest& request, Optional<URL::URL>& answer)
 {
     auto const& url = request.url().value();
 
@@ -324,6 +328,29 @@ static bool should_block_request(LoadRequest const& request)
 
     if (auto page = request.page(); !page || page->content_blocking_enabled_for_url(request.top_level_creation_url())) {
         auto source_url = request.source_url().value_or(url);
+        if (ContentBlocker::the().embedder_decides()) {
+            auto resource_type = ContentBlocker::resource_type_from_fetch_metadata(request.destination(), request.initiator_type(), request.request_mode());
+            auto decision = ContentBlocker::the().embedder_decision(url, source_url, resource_type, request.method());
+            if (!decision.has_value())
+                return false;
+            if (page)
+                page->client().page_did_decide_content_blocking(decision->log_entry, source_url);
+            switch (decision->action) {
+            case ContentBlocker::EmbedderDecision::Action::Allow:
+                return false;
+            case ContentBlocker::EmbedderDecision::Action::Block:
+                if (page)
+                    page->client().page_did_block_resource(url, blocked_resource_kind(request));
+                return true;
+            case ContentBlocker::EmbedderDecision::Action::Redirect:
+                answer = decision->url;
+                return false;
+            case ContentBlocker::EmbedderDecision::Action::Rewrite:
+                request.set_url(decision->url);
+                return false;
+            }
+            VERIFY_NOT_REACHED();
+        }
         if (ContentBlocker::the().is_filtered(url, source_url, request.destination(), request.initiator_type(), request.request_mode())) {
             if (page)
                 page->client().page_did_block_resource(url, blocked_resource_kind(request));
@@ -485,8 +512,50 @@ RefPtr<Fetch::Engine::NetworkTransportHandle> ResourceLoader::load(LoadRequest& 
     log_request_start(request);
     request.start_timer();
 
-    if (should_block_request(request)) {
+    Optional<URL::URL> answer;
+    if (should_block_request(request, answer)) {
         on_complete->function()(false, {}, "Request was blocked"sv, {});
+        return nullptr;
+    }
+
+    // The embedder's blocking engine adds a Content-Security-Policy to the responses of the documents its rules name.
+    if (auto page = request.page(); page && ContentBlocker::the().embedder_decides() && page->content_blocking_enabled_for_url(request.top_level_creation_url())) {
+        auto resource_type = ContentBlocker::resource_type_from_fetch_metadata(request.destination(), request.initiator_type(), request.request_mode());
+        if (resource_type == ContentBlocker::ResourceType::Document || resource_type == ContentBlocker::ResourceType::Subdocument) {
+            auto source_url = request.source_url().value_or(url);
+            if (auto directives = ContentBlocker::the().embedder_csp_directives(url, source_url, resource_type); !directives.is_empty()) {
+                JsonObject entry;
+                entry.set("url"sv, url.serialize());
+                entry.set("type"sv, resource_type == ContentBlocker::ResourceType::Document ? "main_frame"sv : "sub_frame"sv);
+                entry.set("method"sv, request.method().view());
+                entry.set("decision"sv, "csp"sv);
+                entry.set("csp"sv, directives);
+                page->client().page_did_decide_content_blocking(entry.serialized(), source_url);
+
+                on_headers_received = GC::make_root(GC::create_function(m_heap, GC::captures(GC::Ref { *on_headers_received }, directives), [](auto& on_headers_received, auto& directives, Fetch::Engine::NetworkTransportHandle* handle, HTTP::HeaderList const& response_headers, Optional<u32> status_code, Optional<String> const& reason_phrase, Requests::CacheState cache_state) {
+                    auto headers = HTTP::HeaderList::create(response_headers.headers());
+                    headers->append({ "Content-Security-Policy"sv, directives.to_byte_string() });
+                    on_headers_received->function()(handle, headers, status_code, reason_phrase, cache_state);
+                }));
+            }
+        }
+    }
+
+    // The embedder's blocking engine answers the request with a resource of its own.
+    if (answer.has_value()) {
+        auto resource = Fetch::Infrastructure::process_data_url(*answer);
+        if (resource.is_error()) {
+            on_complete->function()(false, {}, "Request was blocked"sv, {});
+            return nullptr;
+        }
+        // NB: The resource stands in for a response the page was allowed to ask for, wherever it asked from.
+        auto response_headers = HTTP::HeaderList::create({
+            { "Content-Type"sv, resource.value().mime_type.serialized().to_byte_string() },
+            { "Access-Control-Allow-Origin"sv, "*"sv },
+        });
+        on_headers_received->function()(nullptr, response_headers, {}, {}, Requests::CacheState::NotCached);
+        on_data_received->function()(nullptr, Requests::ResponseData::from_bytes(resource.value().body));
+        on_complete->function()(true, {}, {}, {});
         return nullptr;
     }
 

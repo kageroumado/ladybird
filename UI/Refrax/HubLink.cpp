@@ -146,6 +146,8 @@ void HubLink::view_state_changed(u64 view_id, Hub::ViewState state)
 static StringView failure_kind(StringView error)
 {
     auto mentions = [&](StringView words) { return error.contains(words, CaseSensitivity::CaseInsensitive); };
+    if (mentions("blocked"sv))
+        return "blockedByPolicy"sv;
     if (mentions("resolve"sv) || mentions("dns"sv) || mentions("host not found"sv) || mentions("lookup"sv))
         return "cannotFindHost"sv;
     if (mentions("refused"sv) || mentions("connect"sv))
@@ -602,6 +604,50 @@ void HubLink::view_selected_text(u64, u64, Optional<ByteString> text)
     JsonObject fields;
     fields.set("text"sv, MUST(String::from_byte_string(*text)));
     m_host.send("clipboardWrite"sv, move(fields));
+}
+
+void HubLink::view_accessibility_tree_received(u64 view_id, u64 sequence, Vector<WebView::AccessibilityNodeData> nodes)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page)
+        return;
+    page->accessibility.update_tree(move(nodes), sequence);
+    m_host.accessibility_tree_did_change(*page);
+}
+
+void HubLink::view_accessibility_tree_changed(u64 view_id, u64 base_sequence, u64 sequence, WebView::AccessibilityTreeDelta delta)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page || !page->accessibility_is_wanted)
+        return;
+    // A change that doesn't fit the tree held leaves it as it was: the whole tree comes again.
+    if (!page->accessibility.apply_delta(delta, base_sequence, sequence).has_value()) {
+        async_view_request_accessibility_tree(view_id);
+        return;
+    }
+    m_host.accessibility_tree_did_change(*page);
+}
+
+void HubLink::view_accessibility_focus_changed(u64 view_id, i64 node_id)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page || !page->accessibility_is_wanted)
+        return;
+    page->accessibility.set_focused_node(node_id);
+    m_host.accessibility_tree_did_change(*page);
+}
+
+void HubLink::view_did_get_content_blocking_log(u64 view_id, u64 request_id, String log_json)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page)
+        return;
+    JsonObject message;
+    message.set("page"sv, page->id);
+    message.set("id"sv, request_id);
+    if (auto log = JsonValue::from_string(log_json); !log.is_error())
+        message.set("log"sv, log.release_value());
+    m_host.send("requestLogged"sv, move(message));
 }
 
 void HubLink::notification_show(u64 id, u64, Optional<u64> replaces, Web::NotificationsAPI::NotificationData data, String, Optional<Gfx::ShareableBitmap>, u64 view_id, String origin)

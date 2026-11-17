@@ -187,6 +187,7 @@ endpoint HubServer
     set_embedder_site_settings(String settings_json) =|
     set_embedder_notification_policy(String policy_json) =|
     set_embedder_content_blocking(String policy_json) =|
+    set_embedder_procedural_runner(String source) =|
     view_embedder_message_reply(u64 view_id, u64 embedder_message_id, Optional<String> value_json, Optional<String> error) =|
     // The UI then answers view_request_navigation for each navigation of the view's top-level document.
     view_set_decides_navigations(u64 view_id, bool decides_navigations) =|
@@ -279,6 +280,7 @@ endpoint HubServer
     // The view keeps this zoom across navigations from now on, whatever is saved for the sites it shows.
     view_set_zoom(u64 view_id, double zoom_level) =|
     view_set_media_suspended(u64 view_id, bool suspended) =|
+    view_request_content_blocking_log(u64 view_id, u64 request_id, u64 since) =|
     view_set_display_metadata(u64 view_id, Optional<u64> display_id, double maximum_frames_per_second, bool screen_shows_high_dynamic_range) =|
     view_set_scales_frames_to_fit(u64 view_id, bool scales_frames_to_fit) =|
     view_enable_picture_in_picture_controls(u64 view_id) =|

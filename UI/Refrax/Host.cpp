@@ -33,6 +33,18 @@ Host::Host(NonnullOwnPtr<Wire> wire)
 
 Host::~Host() = default;
 
+void Host::run_after(AK::Duration delay, Function<void()> function)
+{
+    auto id = m_next_timer_id++;
+    auto timer = Core::Timer::create_single_shot(delay, [this, id, function = move(function)] {
+        function();
+        // NB: The timer is running this very function, so it goes once the event loop has it back.
+        Core::deferred_invoke([this, id] { m_timers.remove(id); });
+    });
+    m_timers.set(id, timer);
+    timer->start();
+}
+
 Page* Host::page_for_view(HubLink const& hub, u64 view_id)
 {
     for (auto& entry : m_pages) {
@@ -166,6 +178,18 @@ void Host::handle_message(String const& name, JsonObject const& fields)
         handle_evaluate(**page, fields);
     } else if (name == "snapshot"sv) {
         handle_snapshot(**page, fields);
+    } else if (name == "accessibility"sv) {
+        if (fields.get_bool("enabled"sv).value_or(false) && !(*page)->accessibility_is_wanted) {
+            (*page)->accessibility_is_wanted = true;
+            (*page)->hub->async_view_request_accessibility_tree((*page)->view_id);
+        }
+    } else if (name == "accessibilityAction"sv) {
+        auto node = fields.get_i64("node"sv);
+        auto action = fields.get_string("action"sv);
+        if (node.has_value() && action.has_value() && action->is_one_of("press"sv, "focus"sv))
+            (*page)->hub->async_view_perform_accessibility_action((*page)->view_id, *node, *action);
+    } else if (name == "requestLog"sv) {
+        (*page)->hub->async_view_request_content_blocking_log((*page)->view_id, fields.get_u64("id"sv).value_or(0), fields.get_u64("since"sv).value_or(0));
     } else if (name == "answer"sv) {
         handle_answer(**page, fields);
     } else if (name == "scriptReply"sv) {
@@ -215,6 +239,14 @@ void Host::handle_start(JsonObject const& fields)
             if (language.is_string())
                 m_languages.append(language.as_string());
         });
+    }
+
+    // The engine bundle carries the script that applies procedural filters to a page.
+    if (auto support = fields.get_string("supportDirectory"sv); support.has_value() && support->bytes_as_string_view().starts_with('/')) {
+        if (auto file = Core::File::open(ByteString::formatted("{}/procedural.js", *support), Core::File::OpenMode::Read); !file.is_error()) {
+            if (auto source = file.value()->read_until_eof(); !source.is_error())
+                m_procedural_runner = String::from_utf8(source.value()).release_value_but_fixme_should_propagate_errors();
+        }
     }
 
     auto theme_file = Core::Resource::load_from_uri("resource://themes/Default.ini"sv);
@@ -287,6 +319,8 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
         hub->async_set_embedder_site_settings(m_site_settings_json);
     // Refrax holds every notification decision, from before its first policy on.
     hub->async_set_embedder_notification_policy(m_notification_policy_json.is_empty() ? "{}"_string : m_notification_policy_json);
+    if (!m_procedural_runner.is_empty())
+        hub->async_set_embedder_procedural_runner(m_procedural_runner);
     if (!m_content_blocking_policy_json.is_empty())
         hub->async_set_embedder_content_blocking(m_content_blocking_policy_json);
     hub->async_set_download_staging_directory(download_staging_directory(key));
@@ -503,10 +537,10 @@ void Host::popup_was_requested(HubLink& hub, u64 opener_view_id, u64 new_view_id
     m_pending_popups.append({ .hub = hub, .view_id = new_view_id, .opener_page_id = opener->id, .disposition = disposition, .has_user_activation = has_user_activation });
 
     // A window opened without a URL never navigates. It has nothing for Refrax to open, and goes after a while.
-    Core::Timer::create_single_shot(POPUP_NAVIGATION_WAIT_LIMIT, [this, hub = NonnullRefPtr<HubLink> { hub }, new_view_id] {
+    run_after(POPUP_NAVIGATION_WAIT_LIMIT, [this, hub = NonnullRefPtr<HubLink> { hub }, new_view_id] {
         if (m_pending_popups.remove_first_matching([&](auto const& popup) { return popup.hub.ptr() == hub.ptr() && popup.view_id == new_view_id; }))
             hub->async_destroy_view(new_view_id);
-    })->start();
+    });
 }
 
 bool Host::popup_did_start_navigating(HubLink& hub, u64 view_id, URL::URL const& url)
@@ -570,10 +604,10 @@ void Host::download_was_added(HubLink& hub, Hub::DownloadState const& state)
 
     // NB: Refrax asks the user about a download in the page that started it. One that no view claims has no page to
     //     ask in, and is never attributed to a page by guessing.
-    Core::Timer::create_single_shot(DOWNLOAD_ATTRIBUTION_WAIT_LIMIT, [this, id] {
+    run_after(DOWNLOAD_ATTRIBUTION_WAIT_LIMIT, [this, id] {
         if (auto* download = staged_download(id); download && !download->page_id.has_value())
             abandon_download(id);
-    })->start();
+    });
 
     download_was_updated(hub, state);
 }
@@ -780,6 +814,151 @@ void Host::handle_policy(JsonObject const& update)
     }
 }
 
+// AppKit's role for a node of the engine's accessibility tree, which names roles as ARIA does.
+static StringView appkit_accessibility_role(StringView role)
+{
+    if (role == "document"sv)
+        return "AXWebArea"sv;
+    if (role == "text leaf"sv)
+        return "AXStaticText"sv;
+    if (role == "button"sv)
+        return "AXButton"sv;
+    if (role == "link"sv)
+        return "AXLink"sv;
+    if (role == "heading"sv)
+        return "AXHeading"sv;
+    if (role == "textbox"sv || role == "searchbox"sv)
+        return "AXTextField"sv;
+    if (role == "checkbox"sv || role == "switch"sv)
+        return "AXCheckBox"sv;
+    if (role == "radio"sv || role == "tab"sv)
+        return "AXRadioButton"sv;
+    if (role == "combobox"sv)
+        return "AXComboBox"sv;
+    if (role == "list"sv || role == "listbox"sv)
+        return "AXList"sv;
+    if (role == "table"sv || role == "grid"sv || role == "treegrid"sv)
+        return "AXTable"sv;
+    if (role == "row"sv)
+        return "AXRow"sv;
+    if (role == "cell"sv || role == "gridcell"sv || role == "columnheader"sv || role == "rowheader"sv)
+        return "AXCell"sv;
+    if (role == "img"sv || role == "image"sv)
+        return "AXImage"sv;
+    if (role == "progressbar"sv)
+        return "AXProgressIndicator"sv;
+    if (role == "slider"sv)
+        return "AXSlider"sv;
+    if (role == "tablist"sv)
+        return "AXTabGroup"sv;
+    if (role == "menu"sv)
+        return "AXMenu"sv;
+    if (role == "menuitem"sv)
+        return "AXMenuItem"sv;
+    if (role == "menubar"sv)
+        return "AXMenuBar"sv;
+    if (role == "separator"sv)
+        return "AXSplitter"sv;
+    return "AXGroup"sv;
+}
+
+// The landmark a role marks, as AppKit's subrole names it.
+static Optional<StringView> appkit_accessibility_subrole(StringView role)
+{
+    if (role == "navigation"sv)
+        return "AXLandmarkNavigation"sv;
+    if (role == "main"sv)
+        return "AXLandmarkMain"sv;
+    if (role == "banner"sv)
+        return "AXLandmarkBanner"sv;
+    if (role == "complementary"sv)
+        return "AXLandmarkComplementary"sv;
+    if (role == "contentinfo"sv)
+        return "AXLandmarkContentInfo"sv;
+    if (role == "search"sv)
+        return "AXLandmarkSearch"sv;
+    if (role == "region"sv)
+        return "AXLandmarkRegion"sv;
+    if (role == "dialog"sv || role == "alertdialog"sv)
+        return "AXApplicationDialog"sv;
+    return {};
+}
+
+void Host::accessibility_tree_did_change(Page& page)
+{
+    if (!page.accessibility_is_wanted || page.accessibility_update_is_scheduled)
+        return;
+    page.accessibility_update_is_scheduled = true;
+    run_after(ACCESSIBILITY_UPDATE_DELAY, [this, page_id = page.id] {
+        auto found = m_pages.get(page_id);
+        if (!found.has_value())
+            return;
+        auto& page = **found;
+        page.accessibility_update_is_scheduled = false;
+
+        JsonArray nodes;
+        Vector<i64> pending;
+        if (auto const* root = page.accessibility.root())
+            pending.append(root->id);
+        // NB: The tree manager holds a tree: every node is under the root once, however the page arranged it.
+        while (!pending.is_empty()) {
+            auto const* node = page.accessibility.node(pending.take_last());
+            if (!node)
+                continue;
+            JsonObject entry;
+            entry.set("id"sv, node->id);
+            entry.set("role"sv, appkit_accessibility_role(node->role));
+            // AppKit has no words of its own for a page's root, which says what WebKit's does.
+            if (node->role == "document"sv)
+                entry.set("roleDescription"sv, "HTML content"sv);
+            if (auto subrole = appkit_accessibility_subrole(node->role); subrole.has_value())
+                entry.set("subrole"sv, *subrole);
+            // A run of text is its own value, as AppKit's static text is. Every other node is named by its label.
+            if (node->role == "text leaf"sv) {
+                entry.set("value"sv, node->name);
+            } else {
+                if (!node->name.is_empty())
+                    entry.set("label"sv, node->name);
+                if (node->role == "heading"sv && node->heading_level > 0)
+                    entry.set("value"sv, node->heading_level);
+                else if (node->value_numeric.has_value())
+                    entry.set("value"sv, *node->value_numeric);
+                else if (!node->value.is_empty())
+                    entry.set("value"sv, node->value);
+            }
+            if (!node->description.is_empty())
+                entry.set("help"sv, node->description);
+            if (!node->url.is_empty())
+                entry.set("url"sv, node->url);
+            if (node->is_focused)
+                entry.set("focused"sv, true);
+            if (node->is_disabled)
+                entry.set("disabled"sv, true);
+            // NB: The engine measures in CSS pixels, which are the view's points at the zoom the page has.
+            JsonArray frame;
+            frame.must_append(node->bounds.x() * page.reported_zoom);
+            frame.must_append(node->bounds.y() * page.reported_zoom);
+            frame.must_append(node->bounds.width() * page.reported_zoom);
+            frame.must_append(node->bounds.height() * page.reported_zoom);
+            entry.set("frame"sv, move(frame));
+            JsonArray children;
+            for (auto child_id : node->child_ids) {
+                children.must_append(child_id);
+                pending.append(child_id);
+            }
+            entry.set("children"sv, move(children));
+            nodes.must_append(move(entry));
+        }
+
+        JsonObject message;
+        message.set("page"sv, page.id);
+        if (auto const* root = page.accessibility.root())
+            message.set("root"sv, root->id);
+        message.set("nodes"sv, move(nodes));
+        send("accessibilityTree"sv, move(message));
+    });
+}
+
 bool Host::show_notification(HubLink& hub, u64 hub_notification_id, u64 view_id, Web::NotificationsAPI::NotificationData const& data, String const& origin)
 {
     auto* page = page_for_view(hub, view_id);
@@ -858,11 +1037,11 @@ void Host::handle_snapshot(Page& page, JsonObject const& fields)
     }
     // The Compositor has shown nothing of the page yet. Its first frame is on its way, and the snapshot is of that.
     page.snapshots_awaiting_frame.append(*id);
-    Core::Timer::create_single_shot(FIRST_FRAME_WAIT_LIMIT, [this, page_id = page.id, snapshot_id = *id] {
+    run_after(FIRST_FRAME_WAIT_LIMIT, [this, page_id = page.id, snapshot_id = *id] {
         auto page = m_pages.get(page_id);
         if (page.has_value() && (*page)->snapshots_awaiting_frame.remove_first_matching([&](auto waiting) { return waiting == snapshot_id; }))
             take_snapshot(**page, snapshot_id);
-    })->start();
+    });
 }
 
 void Host::handle_answer(Page& page, JsonObject const& fields)

@@ -32,6 +32,7 @@
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/HTML/WindowProxy.h>
 #include <LibWeb/Infra/JSON.h>
+#include <LibWeb/Loader/ContentBlocker.h>
 #include <LibWeb/Page/Page.h>
 #include <LibWeb/WebIDL/Promise.h>
 
@@ -371,14 +372,68 @@ bool embedder_allows_autoplay_with_sound(DOM::Document const& document)
     return document.page().autoplay_with_sound_allowed_in(site_url_of(document));
 }
 
+// The world the embedder's procedural filters run in, where the page cannot see or patch them.
+static constexpr auto content_blocking_world = "content-blocking"sv;
+
+// Runs what the embedder's blocking engine has for the document beyond style: its scriptlets, in the page's own
+// world before any script of the page, and its procedural filters, in a world of their own. A document with no site
+// of its own, such as a frame's initial empty one or an about:srcdoc document, gets its page's.
+static void run_embedder_blocking_scripts(DOM::Document& document, Window& window)
+{
+    auto& blocker = ContentBlocker::the();
+    if (!blocker.embedder_decides() || !document.content_blocking_enabled())
+        return;
+    auto resources = JsonValue::from_string(blocker.embedder_page_resources(site_url_of(document)));
+    if (resources.is_error() || !resources.value().is_object())
+        return;
+
+    if (auto scriptlets = resources.value().as_object().get_string("script"sv); scriptlets.has_value() && !scriptlets->is_empty()) {
+        // NB: uBlock Origin's scriptlets share state through an object of this name.
+        auto source = Utf16String::formatted("(function() {{ const scriptletGlobals = {{}};\n{}\n}})();", *scriptlets);
+        (void)run_script_of_embedder(window, {}, move(source), "content-blocking-scriptlets"sv);
+    }
+
+    auto procedural = resources.value().as_object().get_array("procedural"sv);
+    auto runner = blocker.embedder_procedural_runner();
+    if (!procedural.has_value() || procedural->is_empty() || runner.is_empty())
+        return;
+    StringBuilder source;
+    source.append(runner);
+    source.append("\nshieldsApplyProcedural(["sv);
+    auto is_first = true;
+    procedural->for_each([&](JsonValue const& filter) {
+        if (!filter.is_string())
+            return;
+        if (!is_first)
+            source.append(',');
+        is_first = false;
+        source.append(filter.as_string());
+    });
+    source.append("]);"sv);
+    (void)run_script_of_embedder(window, String::from_utf8_without_validation(content_blocking_world.bytes()), Utf16String::from_utf8(source.string_view()), "content-blocking-procedural"sv);
+}
+
 void run_embedder_scripts(DOM::Document& document, EmbedderScript::InjectionTime injection_time)
 {
-    auto& page = document.page();
-    if (page.embedder_scripts().is_empty())
-        return;
     auto window = document.window();
+    if (!window)
+        return;
+
+    // NB: A document start is told once: by the parser as it makes the root element, or as a frame's initial empty
+    //     document is made. A document that reaches its end without one, as when it has no root element to make,
+    //     has its start then.
+    if (injection_time == EmbedderScript::InjectionTime::DocumentStart) {
+        if (document.embedder_document_start_scripts_ran())
+            return;
+        document.set_embedder_document_start_scripts_ran();
+        run_embedder_blocking_scripts(document, *window);
+    } else if (!document.embedder_document_start_scripts_ran()) {
+        run_embedder_scripts(document, EmbedderScript::InjectionTime::DocumentStart);
+    }
+
+    auto& page = document.page();
     auto navigable = document.navigable();
-    if (!window || !navigable)
+    if (page.embedder_scripts().is_empty() || !navigable)
         return;
 
     // NB: A match pattern names a document that came from somewhere, which a frame's initial empty one did not.
@@ -386,16 +441,6 @@ void run_embedder_scripts(DOM::Document& document, EmbedderScript::InjectionTime
     if (!url.scheme().is_one_of("http"sv, "https"sv, "file"sv))
         return;
     auto is_main_frame = !navigable->parent();
-
-    // NB: A document start is told once, by the parser as it makes the root element. A document that reaches its end
-    //     without one, as when it has no root element to make, has its start then.
-    if (injection_time == EmbedderScript::InjectionTime::DocumentStart) {
-        if (document.embedder_document_start_scripts_ran())
-            return;
-        document.set_embedder_document_start_scripts_ran();
-    } else if (!document.embedder_document_start_scripts_ran()) {
-        run_embedder_scripts(document, EmbedderScript::InjectionTime::DocumentStart);
-    }
 
     // The page's own world gets its channels before any script of the document runs.
     if (injection_time == EmbedderScript::InjectionTime::DocumentStart && !window->embedder_worlds().page_world_has_channels()) {

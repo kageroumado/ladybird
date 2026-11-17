@@ -3413,6 +3413,24 @@ void ConnectionFromClient::set_content_blockers(Core::AnonymousBuffer patterns_b
         m_page_host->invalidate_user_style();
 }
 
+void ConnectionFromClient::set_embedder_content_blocker(Core::AnonymousBuffer serialized, Optional<Core::AnonymousBuffer> resources)
+{
+    ReadonlyBytes resources_bytes;
+    if (resources.has_value())
+        resources_bytes = resources->bytes();
+    if (auto result = Web::ContentBlocker::the().set_embedder_engine(serialized.bytes(), resources_bytes); result.is_error()) {
+        dbgln("Failed to set the embedder's content blocker: {}", result.error());
+        return;
+    }
+    m_page_host->invalidate_user_style();
+}
+
+void ConnectionFromClient::clear_embedder_content_blocker()
+{
+    Web::ContentBlocker::the().clear_embedder_engine();
+    m_page_host->invalidate_user_style();
+}
+
 void ConnectionFromClient::set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host)
 {
     if (auto page = this->page(page_id); page.has_value() && page->page().has_local_traversable())

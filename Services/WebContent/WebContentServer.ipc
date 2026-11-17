@@ -271,6 +271,8 @@ endpoint WebContentServer routed by Web::PageId page_id
 
     set_content_blocking_policy(Web::PageId page_id, bool enabled, Vector<String> disabled_sites) =|
     set_content_blockers(Core::AnonymousBuffer patterns) =|
+    set_embedder_content_blocker(Core::AnonymousBuffer serialized, Optional<Core::AnonymousBuffer> resources) =|
+    clear_embedder_content_blocker() =|
 
     set_force_dark_settings(Web::PageId page_id, bool enabled, HashMap<String, bool> per_host) =|
     set_force_dark_for_local_roots(Web::PageId page_id, bool enabled) =|

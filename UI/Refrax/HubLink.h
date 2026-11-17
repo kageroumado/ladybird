@@ -80,7 +80,7 @@ private:
     virtual void view_request_prompt(u64 view_id, Utf16String message, Utf16String default_value) override;
     virtual void view_request_before_unload(u64 view_id, u64 answer_id, String source) override;
     virtual void view_request_dismiss_dialog(u64 view_id) override;
-    virtual void view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin) override;
+    virtual void view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin) override;
     virtual void view_request_permission(u64 view_id, u64 answer_id, WebView::PermissionPromptRequest request) override;
 
     virtual void view_selected_text(u64 view_id, u64 request_id, Optional<ByteString> text) override;

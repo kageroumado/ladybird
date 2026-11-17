@@ -90,7 +90,12 @@ bool web_audio_context_is_allowed_to_start(DOM::EventTarget* global)
     //         the document, unless it lets the site's audible media start by itself.
     auto& window_or_worker = HTML::relevant_window_or_worker_global_scope(*global);
     auto document = HTML::relevant_settings_object(window_or_worker).responsible_document();
-    if (!document || !document->page().has_embedder_site_settings())
+    if (!document)
+        return true;
+    // No context starts while the embedder has the page's media suspended.
+    if (document->page().is_media_suspended())
+        return false;
+    if (!document->page().has_embedder_site_settings())
         return true;
     if (auto window = document->window(); window && window->has_sticky_activation())
         return true;

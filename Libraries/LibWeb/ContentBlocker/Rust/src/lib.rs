@@ -13,6 +13,8 @@ mod rust_demangle;
 #[path = "../../../../RustPanic.rs"]
 mod rust_panic;
 
+mod embedder;
+
 use crate::rust_panic::abort_on_panic;
 use std::collections::HashMap;
 use std::collections::HashSet;

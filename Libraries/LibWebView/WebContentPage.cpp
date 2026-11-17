@@ -2727,6 +2727,7 @@ void WebContentPage::begin_navigation_unload_check(CanonicalNavigable& target_na
         ViewImplementation::NavigationPolicyRequest request {
             .url = start_request.url,
             .is_form_submission = start_request.csp_navigation_type == Web::ContentSecurityPolicy::Directives::NavigationType::FormSubmission,
+            .from_hyperlink = start_request.from_hyperlink,
             .user_involvement = start_request.user_involvement,
             .initiator_origin = from_browser ? Optional<URL::Origin> {} : Optional<URL::Origin> { start_request.initiator_origin },
         };

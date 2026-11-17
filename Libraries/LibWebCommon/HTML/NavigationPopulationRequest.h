@@ -45,6 +45,8 @@ struct NavigationStartRequest {
     Utf16String navigation_api_id;
     CrossProcessId directive_state_id;
     Optional<String> directive_state_value;
+    // AD-HOC: Whether following a hyperlink started this, which an embedder that decides where URLs go is told.
+    bool from_hyperlink { false };
 };
 
 // The serializable inputs needed to continue the navigate algorithm in the process selected to

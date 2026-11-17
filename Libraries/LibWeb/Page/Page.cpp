@@ -2200,7 +2200,24 @@ bool Page::content_blocking_enabled_for_url(Optional<URL::URL> const& url) const
         return true;
 
     auto host = content_blocking_site(*url);
-    return !host.has_value() || !m_content_blocking_disabled_sites.contains(*host);
+    if (!host.has_value())
+        return true;
+    if (m_content_blocking_disabled_sites.contains(*host))
+        return false;
+
+    // AD-HOC: An embedder spares a domain with its subdomains. An address has none.
+    if (ContentBlocker::the().embedder_decides() && url->host()->is_domain()) {
+        auto remaining = host->bytes_as_string_view();
+        while (true) {
+            auto dot = remaining.find('.');
+            if (!dot.has_value())
+                break;
+            remaining = remaining.substring_view(*dot + 1);
+            if (m_content_blocking_disabled_sites.contains(MUST(String::from_utf8(remaining))))
+                return false;
+        }
+    }
+    return true;
 }
 
 void Page::set_content_blocking_policy(bool enabled, ReadonlySpan<String> disabled_sites)

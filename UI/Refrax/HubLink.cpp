@@ -550,7 +550,7 @@ void HubLink::download_updated(Hub::DownloadState download)
     m_host.download_was_updated(*this, download);
 }
 
-void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin)
+void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement, Optional<URL::Origin> initiator_origin)
 {
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page) {
@@ -561,7 +561,7 @@ void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, 
     auto kind = "other"sv;
     if (is_form_submission)
         kind = "formSubmission"sv;
-    else if (user_involvement == Web::HTML::UserNavigationInvolvement::Activation)
+    else if (from_hyperlink)
         kind = "link"sv;
     auto fields = url_fields(url);
     fields.set("kind"sv, kind);

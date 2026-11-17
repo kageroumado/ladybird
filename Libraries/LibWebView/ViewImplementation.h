@@ -648,6 +648,7 @@ public:
     struct NavigationPolicyRequest {
         URL::URL url;
         bool is_form_submission { false };
+        bool from_hyperlink { false };
         Web::HTML::UserNavigationInvolvement user_involvement { Web::HTML::UserNavigationInvolvement::None };
         // The origin of the document that started the navigation, which the browser's own navigations have none of.
         Optional<URL::Origin> initiator_origin;

@@ -7,6 +7,7 @@
 #include <AK/AnyOf.h>
 #include <AK/Checked.h>
 #include <AK/Debug.h>
+#include <AK/Hex.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/Math.h>
@@ -18,6 +19,7 @@
 #include <LibCore/Directory.h>
 #include <LibCore/Environment.h>
 #include <LibCore/File.h>
+#include <LibCrypto/Hash/Hash.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/StatsLog.h>
 #include <LibCore/System.h>
@@ -39,6 +41,7 @@
 #include <LibRequests/RequestControlClient.h>
 #include <LibURL/InternalURLs.h>
 #include <LibURL/Parser.h>
+#include <LibWebCommon/Loader/ContentBlocking.h>
 #include <LibWebCommon/CSS/PropertyList.h>
 #include <LibWebCommon/Fetch/Infrastructure/HTTP/Statuses.h>
 #include <LibWebCommon/Loader/DownloadFilename.h>
@@ -1178,8 +1181,14 @@ ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(
     if (auto* webdriver_bidi = WebDriverBiDi::the(); webdriver_bidi && webdriver_bidi->session_state().is_active)
         webdriver_bidi->push_session_state_for_client(*client);
 
-    if (m_content_blocker_list_buffer.has_value())
+    if (m_embedder_content_blocking.has_value()) {
+        if (auto const& engine = m_embedder_content_blocking->engine; engine.has_value())
+            client->async_set_embedder_content_blocker(engine->serialized, engine->resources);
+        else
+            client->async_clear_embedder_content_blocker();
+    } else if (m_content_blocker_list_buffer.has_value()) {
         client->async_set_content_blockers(*m_content_blocker_list_buffer);
+    }
 
     m_web_content_clients.set(client);
     return client;
@@ -2909,6 +2918,7 @@ void Application::set_scripting_enabled(bool enabled)
 void Application::set_embedder_site_settings(String settings_json)
 {
     m_embedder_site_settings_json = move(settings_json);
+    apply_embedder_content_blocking();
     ViewImplementation::for_each_view([&](ViewImplementation& view) {
         if (view.has_traversable()) {
             view.traversable().for_each_hosting_page([&](WebContentPage& page) {
@@ -2917,6 +2927,139 @@ void Application::set_embedder_site_settings(String settings_json)
         }
         return IterationDecision::Continue;
     });
+}
+
+static ErrorOr<Core::AnonymousBuffer, String> read_embedder_blocking_file(JsonObject const& file, StringView what)
+{
+    auto path = file.get_string("path"sv);
+    auto sha256 = file.get_string("sha256"sv);
+    if (!path.has_value() || !sha256.has_value())
+        return MUST(String::formatted("The policy names no {} file", what));
+    auto url = URL::Parser::basic_parse(*path);
+    if (!url.has_value() || url->scheme() != "file"sv)
+        return MUST(String::formatted("The {} file is no file: URL", what));
+
+    auto opened = Core::File::open(url->file_path(), Core::File::OpenMode::Read);
+    if (opened.is_error())
+        return MUST(String::formatted("The {} file cannot be opened: {}", what, opened.error()));
+    auto bytes = opened.value()->read_until_eof();
+    if (bytes.is_error())
+        return MUST(String::formatted("The {} file cannot be read: {}", what, bytes.error()));
+    if (bytes.value().is_empty())
+        return MUST(String::formatted("The {} file is empty", what));
+    if (!encode_hex(Crypto::Hash::digest(Crypto::Hash::HashKind::SHA256, bytes.value()).bytes()).equals_ignoring_ascii_case(*sha256))
+        return MUST(String::formatted("The {} file is not the one the policy names", what));
+
+    auto buffer = Core::AnonymousBuffer::create_with_size(bytes.value().size());
+    if (buffer.is_error())
+        return MUST(String::formatted("The {} file takes more memory than there is", what));
+    bytes.value().span().copy_to({ buffer.value().data<u8>(), buffer.value().size() });
+    return buffer.release_value();
+}
+
+ErrorOr<Application::EmbedderBlockingEngine, String> Application::read_embedder_blocking_engine(JsonObject const& policy)
+{
+    auto engine = policy.get_object("engine"sv);
+    if (!engine.has_value())
+        return "The policy names no engine"_string;
+    auto format = engine->get_string("format"sv).value_or({});
+    if (format != Web::embedder_blocking_engine_format)
+        return MUST(String::formatted("The engine's format is {}, and this reads {}", format, Web::embedder_blocking_engine_format));
+
+    auto serialized = TRY(read_embedder_blocking_file(*engine, "engine"sv));
+    Optional<Core::AnonymousBuffer> resources;
+    if (auto resources_file = policy.get_object("resources"sv); resources_file.has_value())
+        resources = TRY(read_embedder_blocking_file(*resources_file, "resources"sv));
+
+    return EmbedderBlockingEngine { move(serialized), move(resources), *engine->get_string("sha256"sv) };
+}
+
+bool Application::reads_embedder_blocking_engine_format(JsonObject const& policy)
+{
+    auto engine = policy.get_object("engine"sv);
+    return engine.has_value() && engine->get_string("format"sv).value_or({}) == Web::embedder_blocking_engine_format;
+}
+
+Vector<String> Application::embedder_content_blocking_spared_hosts() const
+{
+    Vector<String> hosts;
+    if (m_embedder_content_blocking.has_value())
+        hosts.extend(m_embedder_content_blocking->spared_hosts);
+    // A site rule that turns content blocking off spares the site as the policy's own list does.
+    if (auto json = JsonValue::from_string(m_embedder_site_settings_json); !json.is_error() && json.value().is_object()) {
+        if (auto rules = json.value().as_object().get_array("rules"sv); rules.has_value()) {
+            rules->for_each([&](JsonValue const& rule) {
+                if (!rule.is_object() || rule.as_object().get_bool("contentBlockingEnabled"sv).value_or(true))
+                    return;
+                if (auto host = rule.as_object().get_string("host"sv); host.has_value())
+                    hosts.append(*host);
+            });
+        }
+    }
+    return hosts;
+}
+
+void Application::apply_embedder_content_blocking()
+{
+    if (!m_embedder_content_blocking.has_value())
+        return;
+    auto const& blocking = *m_embedder_content_blocking;
+    auto enabled = blocking.enabled && blocking.engine.has_value();
+    auto spared_hosts = embedder_content_blocking_spared_hosts();
+    WebContentClient::for_each_client([&](WebContentClient& client) {
+        client.for_each_page([&](WebContentPage& page) {
+            client.async_set_content_blocking_policy(page.id(), enabled, spared_hosts);
+            return IterationDecision::Continue;
+        });
+        return IterationDecision::Continue;
+    });
+    ViewImplementation::for_each_view([](ViewImplementation& view) {
+        view.notify_content_blocking_changed();
+        return IterationDecision::Continue;
+    });
+}
+
+void Application::set_embedder_content_blocking(StringView policy_json)
+{
+    auto json = JsonValue::from_string(policy_json);
+    if (json.is_error() || !json.value().is_object())
+        return;
+    auto const& policy = json.value().as_object();
+
+    auto is_first = !m_embedder_content_blocking.has_value();
+    if (is_first)
+        m_embedder_content_blocking = EmbedderContentBlocking {};
+    auto& blocking = *m_embedder_content_blocking;
+    blocking.enabled = policy.get_bool("isEnabled"sv).value_or(false);
+    blocking.spared_hosts.clear();
+    if (auto hosts = policy.get_array("allowlistedHosts"sv); hosts.has_value()) {
+        hosts->for_each([&](JsonValue const& host) {
+            if (host.is_string())
+                blocking.spared_hosts.append(host.as_string());
+        });
+    }
+
+    auto engine_changed = false;
+    if (blocking.enabled) {
+        if (!reads_embedder_blocking_engine_format(policy)) {
+            engine_changed = blocking.engine.has_value();
+            blocking.engine.clear();
+        } else if (auto engine = read_embedder_blocking_engine(policy); !engine.is_error()) {
+            engine_changed = !blocking.engine.has_value() || blocking.engine->sha256 != engine.value().sha256;
+            blocking.engine = engine.release_value();
+        }
+    }
+
+    if (is_first || engine_changed) {
+        WebContentClient::for_each_client([&](WebContentClient& client) {
+            if (blocking.engine.has_value())
+                client.async_set_embedder_content_blocker(blocking.engine->serialized, blocking.engine->resources);
+            else
+                client.async_clear_embedder_content_blocker();
+            return IterationDecision::Continue;
+        });
+    }
+    apply_embedder_content_blocking();
 }
 
 void Application::set_embedder_notification_policy(StringView policy_json)
@@ -3232,6 +3375,11 @@ bool Application::has_content_blocking_rules() const
 
 void Application::apply_content_blocking_policy(WebContentPage& page)
 {
+    if (m_embedder_content_blocking.has_value()) {
+        auto const& blocking = *m_embedder_content_blocking;
+        page.async_set_content_blocking_policy(blocking.enabled && blocking.engine.has_value(), embedder_content_blocking_spared_hosts());
+        return;
+    }
     auto disabled_sites = m_settings->content_blocker_disabled_sites().values();
     page.async_set_content_blocking_policy(content_blocking_enabled(), disabled_sites);
 }

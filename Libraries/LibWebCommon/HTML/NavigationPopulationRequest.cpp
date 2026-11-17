@@ -172,6 +172,7 @@ ErrorOr<void> encode(Encoder& encoder, Web::HTML::NavigationStartRequest const& 
     TRY(encoder.encode(request.navigation_api_id));
     TRY(encoder.encode(request.directive_state_id));
     TRY(encoder.encode(request.directive_state_value));
+    TRY(encoder.encode(request.from_hyperlink));
     return {};
 }
 
@@ -202,6 +203,7 @@ ErrorOr<Web::HTML::NavigationStartRequest> decode(Decoder& decoder)
         .navigation_api_id = TRY(decoder.decode<Utf16String>()),
         .directive_state_id = TRY(decoder.decode<Web::HTML::CrossProcessId>()),
         .directive_state_value = TRY(decoder.decode<Optional<String>>()),
+        .from_hyperlink = TRY(decoder.decode<bool>()),
     };
 }
 

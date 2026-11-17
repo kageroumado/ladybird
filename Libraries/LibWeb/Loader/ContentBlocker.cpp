@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/JsonObject.h>
+#include <AK/JsonValue.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StringBuilder.h>
 #include <AK/Vector.h>
@@ -24,6 +26,7 @@ ContentBlocker::ContentBlocker() = default;
 ContentBlocker::~ContentBlocker()
 {
     ContentBlocking::FFI::rust_content_blocker_free(m_engine.load());
+    ContentBlocking::FFI::rust_embedder_blocker_free(m_embedder_engine.load());
 }
 
 static StringView resource_type_to_adblock_request_type(ContentBlocker::ResourceType type)
@@ -67,6 +70,17 @@ static ByteString serialized_url_for_matching(URL::URL const& url)
     if (url.scheme() == "file"sv)
         return ByteString::formatted("http://local-file.invalid/{}", serialized_url(url));
     return serialized_url(url);
+}
+
+static ByteString take_rust_string(ContentBlocking::FFI::ContentBlockerString rust_string)
+{
+    if (!rust_string.data)
+        return {};
+
+    ArmedScopeGuard free_string = [&] {
+        ContentBlocking::FFI::rust_content_blocker_free_string(rust_string.data, rust_string.length);
+    };
+    return ByteString { reinterpret_cast<char const*>(rust_string.data), rust_string.length };
 }
 
 static Utf16String take_rust_utf16_string(ContentBlocking::FFI::ContentBlockerString rust_string)
@@ -173,6 +187,25 @@ ErrorOr<void> ContentBlocker::set_rules_from_bytes(ReadonlyBytes rules_bytes)
     return {};
 }
 
+ErrorOr<void> ContentBlocker::set_embedder_engine(ReadonlyBytes serialized, ReadonlyBytes resources_json)
+{
+    auto* engine = ContentBlocking::FFI::rust_embedder_blocker_create(serialized, resources_json);
+    if (!engine)
+        return Error::from_string_literal("The embedder's blocking engine is unreadable");
+
+    MutexLocker locker(m_mutex);
+    ContentBlocking::FFI::rust_embedder_blocker_free(m_embedder_engine.exchange(engine));
+    m_embedder_decides = true;
+    return {};
+}
+
+void ContentBlocker::clear_embedder_engine()
+{
+    MutexLocker locker(m_mutex);
+    ContentBlocking::FFI::rust_embedder_blocker_free(m_embedder_engine.exchange(nullptr));
+    m_embedder_decides = true;
+}
+
 bool ContentBlocker::is_filtered(URL::URL const& url) const
 {
     return is_filtered(url, url, ResourceType::Other);
@@ -197,6 +230,20 @@ bool ContentBlocker::is_filtered(URL::URL const& url, URL::URL const& source_url
     auto request_type = resource_type_to_adblock_request_type(resource_type);
 
     MutexLocker locker(m_mutex);
+    if (embedder_decides()) {
+        auto* engine = m_embedder_engine.load();
+        if (!engine)
+            return false;
+        auto decision_json = take_rust_string(ContentBlocking::FFI::rust_embedder_blocker_decide(
+            engine,
+            url_string.bytes(),
+            source_url_string.bytes(),
+            request_type.bytes(),
+            ""sv.bytes()));
+        auto decision = JsonValue::from_string(decision_json);
+        return !decision.is_error() && decision.value().is_object() && decision.value().as_object().get_bool("block"sv).value_or(false);
+    }
+
     auto* engine = m_engine.load();
     if (!engine)
         return false;
@@ -230,6 +277,17 @@ Utf16String ContentBlocker::cosmetic_style_sheet_for_url(URL::URL const& url, Re
     auto ids_bytes = ids_string.value().bytes_as_string_view();
 
     MutexLocker locker(m_mutex);
+    if (embedder_decides()) {
+        auto* engine = m_embedder_engine.load();
+        if (!engine)
+            return {};
+        return take_rust_utf16_string(ContentBlocking::FFI::rust_embedder_blocker_cosmetic_css(
+            engine,
+            url_string.bytes(),
+            classes_bytes.bytes(),
+            ids_bytes.bytes()));
+    }
+
     auto* engine = m_engine.load();
     if (!engine)
         return {};
@@ -258,6 +316,17 @@ bool ContentBlocker::has_generic_cosmetic_selectors_for_url(URL::URL const& url,
     auto ids_bytes = ids_string.value().bytes_as_string_view();
 
     MutexLocker locker(m_mutex);
+    if (embedder_decides()) {
+        auto* engine = m_embedder_engine.load();
+        if (!engine)
+            return false;
+        return ContentBlocking::FFI::rust_embedder_blocker_has_generic_cosmetic_selectors(
+            engine,
+            url_string.bytes(),
+            classes_bytes.bytes(),
+            ids_bytes.bytes());
+    }
+
     auto* engine = m_engine.load();
     if (!engine)
         return false;

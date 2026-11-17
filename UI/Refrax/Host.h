@@ -208,6 +208,9 @@ private:
     String m_site_settings_json;
     // Every notification decision Refrax holds, as the JSON object of its policy.
     String m_notification_policy_json;
+    // Refrax's content blocking, as the JSON object of its policy, and the engine file that filters by it.
+    String m_content_blocking_policy_json;
+    Optional<String> m_blocking_engine_sha256;
     // The notifications Refrax shows, by the id it knows each by. A Hub numbers its own from one.
     struct ShownNotification {
         NonnullRefPtr<HubLink> hub;

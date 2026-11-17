@@ -23,11 +23,12 @@ all_features = false
 [export]
 include = ["ContentBlockerString"]
 # Opaque to C++, which names it by a void pointer (see below).
-exclude = ["ContentBlockerEngine"]
+exclude = ["ContentBlockerEngine", "EmbedderBlockerEngine"]
 
 [export.rename]
 # An engine is opaque to C++, which holds it by pointer.
 "ContentBlockerEngine" = "void"
+"EmbedderBlockerEngine" = "void"
 "Span" = "AK::ReadonlySpan"
 
 [export.mangle]

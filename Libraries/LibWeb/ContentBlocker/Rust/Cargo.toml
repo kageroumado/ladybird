@@ -10,7 +10,9 @@ crate-type = ["staticlib"]
 #   python3 Meta/CMake/flatpak/generate-cargo-sources.py
 [dependencies]
 ak = { path = "../../../../AK/Rust" }
-adblock = "0.13.5"
+# Pinned exactly: an embedder hands over engines that adblock-rust 0.13.3 serialized, and only that version reads
+# them. Cargo takes one 0.13 release for the whole build, so the browser's own lists compile with it too.
+adblock = "=0.13.3"
 ladybird_allocator = { path = "../../../RustAllocator", optional = true }
 rustc-demangle = "0.1"
 serde_json = "1.0"

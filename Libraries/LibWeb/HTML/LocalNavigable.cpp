@@ -3978,6 +3978,8 @@ void LocalNavigable::begin_navigation(PreparedNavigation navigation)
         .navigation_api_id = entry_defaults->navigation_api_id(),
         .directive_state_id = entry_defaults->directive_state()->cross_process_id(),
         .directive_state_value = move(directive_state_value),
+        // NB: Following a hyperlink and submitting a form are the navigations that name the element they came from.
+        .from_hyperlink = source_element && csp_navigation_type != ContentSecurityPolicy::Directives::Directive::NavigationType::FormSubmission,
     };
     park_navigation_for_population(navigation_id, move(navigation));
 

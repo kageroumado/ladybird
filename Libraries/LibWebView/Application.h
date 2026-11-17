@@ -119,6 +119,22 @@ public:
     void set_embedder_scripts(String scripts_json);
     // What the embedder lets sites do, as the JSON object of the engine contract's siteSettings policy.
     void set_embedder_site_settings(String settings_json);
+    // A blocking engine the embedder built, read from the files its policy names.
+    struct EmbedderBlockingEngine {
+        Core::AnonymousBuffer serialized;
+        Optional<Core::AnonymousBuffer> resources;
+        String sha256;
+    };
+    // Reads the engine that the engine contract's contentBlocking policy names, or says why it is no use: another
+    // format, or a file that isn't the one the policy means.
+    static ErrorOr<EmbedderBlockingEngine, String> read_embedder_blocking_engine(JsonObject const& policy);
+    // Whether the policy's engine is in the format this reads. An engine in another format leaves pages unfiltered,
+    // where a file that fails to load leaves the engine before it in place.
+    static bool reads_embedder_blocking_engine_format(JsonObject const& policy);
+    // The embedder's contentBlocking policy, as its JSON object. From the first one on, the embedder's engine is the
+    // only one that filters, for the sites it doesn't spare. A policy whose engine is no use leaves the engine
+    // before it in place.
+    void set_embedder_content_blocking(StringView policy_json);
     // Every notification decision the embedder holds, as the JSON object of the engine contract's notifications
     // policy. From the first one on, the embedder's lists are the only source of notification permission.
     void set_embedder_notification_policy(StringView policy_json);
@@ -708,6 +724,14 @@ private:
     String m_embedder_scripts_json;
     String m_embedder_site_settings_json;
     bool m_embedder_decides_notifications { false };
+    struct EmbedderContentBlocking {
+        bool enabled { false };
+        Optional<EmbedderBlockingEngine> engine;
+        Vector<String> spared_hosts;
+    };
+    Optional<EmbedderContentBlocking> m_embedder_content_blocking;
+    Vector<String> embedder_content_blocking_spared_hosts() const;
+    void apply_embedder_content_blocking();
     struct EmbedderChannel {
         Optional<String> world;
         String channel;

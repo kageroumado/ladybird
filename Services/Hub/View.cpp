@@ -197,7 +197,7 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         }
         auto answer_id = m_next_answer_id++;
         m_pending_answers.set(answer_id, move(on_complete));
-        ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.user_involvement, request.initiator_origin);
+        ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.from_hyperlink, request.user_involvement, request.initiator_origin);
     };
 }
 

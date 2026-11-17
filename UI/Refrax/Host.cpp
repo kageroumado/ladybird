@@ -287,6 +287,8 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
         hub->async_set_embedder_site_settings(m_site_settings_json);
     // Refrax holds every notification decision, from before its first policy on.
     hub->async_set_embedder_notification_policy(m_notification_policy_json.is_empty() ? "{}"_string : m_notification_policy_json);
+    if (!m_content_blocking_policy_json.is_empty())
+        hub->async_set_embedder_content_blocking(m_content_blocking_policy_json);
     hub->async_set_download_staging_directory(download_staging_directory(key));
     m_hubs.set(key, hub);
     return hub;
@@ -738,6 +740,36 @@ void Host::handle_policy(JsonObject const& update)
         m_site_settings_json = policy.has_value() ? policy->serialized() : "{}"_string;
         for (auto& hub : m_hubs)
             hub.value->async_set_embedder_site_settings(m_site_settings_json);
+    }
+
+    if (auto blocking = update.get_object("contentBlocking"sv); blocking.has_value()) {
+        auto policy = blocking->get_object("policy"sv);
+        m_content_blocking_policy_json = policy.has_value() ? policy->serialized() : "{}"_string;
+        for (auto& hub : m_hubs)
+            hub.value->async_set_embedder_content_blocking(m_content_blocking_policy_json);
+
+        // NB: Every Hub reads the engine as this does, and its pages' loads follow the policy on its connection, so
+        //     what this says of the engine holds for each page Refrax loads from here on.
+        JsonObject status;
+        if (!policy.has_value() || !policy->get_bool("isEnabled"sv).value_or(false)) {
+            status.set("status"sv, "unfiltered"sv);
+        } else if (auto engine = WebView::Application::read_embedder_blocking_engine(*policy); !engine.is_error()) {
+            m_blocking_engine_sha256 = engine.value().sha256;
+            status.set("status"sv, "applied"sv);
+            status.set("sha256"sv, engine.value().sha256);
+        } else {
+            if (!WebView::Application::reads_embedder_blocking_engine_format(*policy))
+                m_blocking_engine_sha256.clear();
+            status.set("status"sv, m_blocking_engine_sha256.has_value() ? "applied"sv : "unfiltered"sv);
+            if (m_blocking_engine_sha256.has_value())
+                status.set("sha256"sv, *m_blocking_engine_sha256);
+            status.set("reason"sv, engine.error());
+        }
+        JsonObject event;
+        event.set("contentBlockingStatus"sv, move(status));
+        JsonObject message;
+        message.set("event"sv, move(event));
+        send("engineEvent"sv, move(message));
     }
 
     if (auto notifications = update.get_object("notifications"sv); notifications.has_value()) {

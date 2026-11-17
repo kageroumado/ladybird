@@ -43,8 +43,19 @@ public:
 
     static ContentBlocker& the();
 
-    bool has_rules() const { return m_engine.load(AK::MemoryOrder::memory_order_relaxed) != nullptr; }
-    bool has_cosmetic_rules() const { return m_has_cosmetic_rules.load(AK::MemoryOrder::memory_order_relaxed); }
+    bool has_rules() const { return active_engine() != nullptr; }
+    bool has_cosmetic_rules() const
+    {
+        if (embedder_decides())
+            return active_engine() != nullptr;
+        return m_has_cosmetic_rules.load(AK::MemoryOrder::memory_order_relaxed);
+    }
+
+    // An embedder that filters with an engine of its own hands over the engine's serialized form and its resources.
+    // From its first word on, only its engine filters; without one, nothing is filtered.
+    bool embedder_decides() const { return m_embedder_decides.load(AK::MemoryOrder::memory_order_relaxed); }
+    ErrorOr<void> set_embedder_engine(ReadonlyBytes serialized, ReadonlyBytes resources_json);
+    void clear_embedder_engine();
 
     bool is_filtered(URL::URL const&) const;
     bool is_filtered(URL::URL const&, URL::URL const& source_url, ResourceType) const;
@@ -68,6 +79,13 @@ private:
     mutable Mutex m_mutex;
     Atomic<bool> m_has_cosmetic_rules { false };
     Atomic<void*> m_engine { nullptr };
+    Atomic<void*> m_embedder_engine { nullptr };
+    Atomic<bool> m_embedder_decides { false };
+
+    void* active_engine() const
+    {
+        return (embedder_decides() ? m_embedder_engine : m_engine).load(AK::MemoryOrder::memory_order_relaxed);
+    }
 };
 
 }

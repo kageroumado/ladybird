@@ -450,6 +450,11 @@ void ConnectionFromUI::set_embedder_site_settings(String settings_json)
     Application::the().set_embedder_site_settings(move(settings_json));
 }
 
+void ConnectionFromUI::set_embedder_content_blocking(String policy_json)
+{
+    Application::the().set_embedder_content_blocking(policy_json);
+}
+
 void ConnectionFromUI::set_embedder_notification_policy(String policy_json)
 {
     Application::the().set_embedder_notification_policy(policy_json);

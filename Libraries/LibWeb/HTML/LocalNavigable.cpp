@@ -2569,6 +2569,22 @@ static void perform_navigation_params_fetch(JS::Realm& realm, GC::Ref<Navigation
 // https://wicg.github.io/scroll-to-text-fragment/#extracting-the-fragment-directive
 // https://wicg.github.io/scroll-to-text-fragment/#restricting-the-text-fragment
 // https://html.spec.whatwg.org/multipage/browsing-the-web.html#create-navigation-params-by-fetching
+static HashMap<Utf16String, Vector<HTTP::Header>>& embedder_request_headers_by_navigation()
+{
+    static auto& headers = *new HashMap<Utf16String, Vector<HTTP::Header>>;
+    return headers;
+}
+
+void LocalNavigable::set_embedder_request_headers_for_navigation(Utf16String navigation_id, Vector<HTTP::Header> headers)
+{
+    // NB: A navigation that ends before its request is made leaves its headers behind. There are never many.
+    static constexpr size_t maximum_waiting_navigations = 32;
+    auto& waiting = embedder_request_headers_by_navigation();
+    if (waiting.size() >= maximum_waiting_navigations)
+        waiting.clear();
+    waiting.set(move(navigation_id), move(headers));
+}
+
 static void create_navigation_params_by_fetching(
     PendingSessionHistoryEntryDescriptor const& entry,
     GC::Ptr<LocalNavigable> navigable,
@@ -2621,6 +2637,12 @@ static void create_navigation_params_by_fetching(
         WebDriver::BiDi::initialize_network_request(*request, navigable, navigation_id);
     request->set_referrer(document_state.request_referrer);
     request->set_referrer_policy(document_state.request_referrer_policy);
+    if (navigation_id.has_value()) {
+        if (auto headers = embedder_request_headers_by_navigation().take(*navigation_id); headers.has_value()) {
+            for (auto& header : *headers)
+                request->header_list()->set(move(header));
+        }
+    }
     request->set_policy_container(source_snapshot_params->source_policy_container);
     request->set_traversable_for_user_prompts(navigable->top_level_traversable()->id());
     request->set_text_directive_user_activation(source_snapshot_params->text_directive_user_activation);

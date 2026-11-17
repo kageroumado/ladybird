@@ -298,6 +298,9 @@ public:
     void set_zoom_kept_by_embedder(double zoom_level);
     // An embedder suspends a tab's media, in every page that hosts a part of it, until it says otherwise.
     void set_media_suspended(bool);
+    // A load whose first request carries headers of the embedder's.
+    void load(URL::URL const&, Vector<HTTP::Header> embedder_request_headers);
+    Optional<Vector<HTTP::Header>> take_embedder_request_headers(Utf16String const& navigation_id);
     bool media_suspended() const { return m_media_suspended; }
     void reset_zoom();
     double zoom_level() const { return m_zoom_level; }
@@ -994,6 +997,11 @@ protected:
     double m_zoom_level { 1.0 };
     bool m_embedder_keeps_zoom { false };
     bool m_media_suspended { false };
+    struct EmbedderRequestHeaders {
+        Utf16String navigation_id;
+        Vector<HTTP::Header> headers;
+    };
+    Optional<EmbedderRequestHeaders> m_embedder_request_headers;
     struct ContentBlockingLogEntry {
         u64 sequence { 0 };
         String json;

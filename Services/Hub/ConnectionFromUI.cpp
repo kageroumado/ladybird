@@ -950,6 +950,14 @@ void ConnectionFromUI::view_load(u64 view_id, URL::URL url, Web::Bindings::Navig
     }
 }
 
+void ConnectionFromUI::view_load_with_headers(u64 view_id, URL::URL url, Vector<HTTP::Header> headers)
+{
+    if (auto* view = find_view(view_id)) {
+        view->load(url, move(headers));
+        view->push_state_to_ui();
+    }
+}
+
 void ConnectionFromUI::view_load_html(u64 view_id, ByteString html)
 {
     if (auto* view = find_view(view_id)) {

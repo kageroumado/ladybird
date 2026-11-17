@@ -432,7 +432,19 @@ void Host::handle_command(Page& page, JsonObject const& command)
             auto url = URL::Parser::basic_parse(request->get_string("url"sv).value_or({}));
             if (!url.has_value())
                 return;
-            hub.async_view_load(view_id, url.release_value(), Web::Bindings::NavigationHistoryBehavior::Auto);
+            Vector<HTTP::Header> headers;
+            if (auto wanted = request->get_object("headers"sv); wanted.has_value()) {
+                wanted->for_each_member([&](auto const& header_name, JsonValue const& value) {
+                    // NB: A header is one line. A name or value that would start another is left out.
+                    auto is_one_line = [](StringView text) { return !text.contains('\r') && !text.contains('\n'); };
+                    if (value.is_string() && !header_name.is_empty() && is_one_line(header_name) && is_one_line(value.as_string()))
+                        headers.append({ header_name.to_byte_string(), value.as_string().to_byte_string() });
+                });
+            }
+            if (headers.is_empty())
+                hub.async_view_load(view_id, url.release_value(), Web::Bindings::NavigationHistoryBehavior::Auto);
+            else
+                hub.async_view_load_with_headers(view_id, url.release_value(), move(headers));
         } else if (name == "goBack"sv) {
             page.awaits_history_commit = true;
             hub.async_view_traverse_the_history_by_delta(view_id, -1);

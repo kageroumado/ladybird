@@ -3749,6 +3749,11 @@ void ConnectionFromClient::set_embedder_decides_notifications(Web::PageId page_i
         page->page().set_embedder_decides_notifications(decides);
 }
 
+void ConnectionFromClient::set_embedder_navigation_headers(Web::PageId, Utf16String navigation_id, Vector<HTTP::Header> headers)
+{
+    Web::HTML::LocalNavigable::set_embedder_request_headers_for_navigation(move(navigation_id), move(headers));
+}
+
 void ConnectionFromClient::set_media_suspended(Web::PageId page_id, bool suspended)
 {
     if (auto page = this->page(page_id); page.has_value())

@@ -2793,6 +2793,9 @@ void WebContentPage::did_complete_navigation_unload_check(Web::HTML::CrossProces
     population_request.target_snapshot_params.sandboxing_flags |= navigable->snapshot_target_snapshot_params().sandboxing_flags;
     ongoing_navigation->history_entry = MUST(CanonicalSessionHistoryEntry::create_from_descriptor(Web::HTML::create_session_history_entry_descriptor(population_request.history_entry, 0)));
     ongoing_navigation->state = CanonicalNavigation::CreatingNavigationParams { NavigationLoader::create(move(population_request)) };
+    // NB: The headers an embedder gave this navigation go ahead of the request that makes it, on the one connection.
+    if (auto headers = view().take_embedder_request_headers(navigation_id); headers.has_value())
+        async_set_embedder_navigation_headers(navigation_id, headers.release_value());
     async_create_navigation_params(ongoing_navigation->loader()->request());
 
     // Requesting navigation params starts the fetch, so a view's top-level population begins its recorded

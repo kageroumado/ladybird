@@ -111,6 +111,7 @@ private:
     virtual void view_set_decides_navigations(u64 view_id, bool decides_navigations) override;
     virtual void view_set_zoom(u64 view_id, double zoom_level) override;
     virtual void view_set_media_suspended(u64 view_id, bool suspended) override;
+    virtual void view_load_with_headers(u64 view_id, URL::URL url, Vector<HTTP::Header> headers) override;
     virtual void view_request_content_blocking_log(u64 view_id, u64 request_id, u64 since) override;
     virtual void set_download_staging_directory(ByteString directory) override;
     virtual void view_request_close_preflight(u64 view_id, u64 request_id) override;

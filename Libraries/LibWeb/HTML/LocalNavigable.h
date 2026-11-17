@@ -15,6 +15,7 @@
 #include <AK/Time.h>
 #include <AK/Tuple.h>
 #include <AK/Utf16String.h>
+#include <LibHTTP/Header.h>
 #include <AK/Utf16View.h>
 #include <LibCompositing/DisplayList/DisplayListResources.h>
 #include <LibCompositing/Scrolling/SmoothScrollAnimation.h>
@@ -198,6 +199,10 @@ public:
 
     bool resume_navigation_params_creation(Utf16String const& navigation_id, Optional<NavigationPopulationRequest>);
     void adopt_navigation_started_in_ui_process(Utf16String navigation_id);
+    // AD-HOC: An embedder that starts a navigation can give its first request headers of its own. They wait here,
+    //         under the navigation's id, for the request to be made.
+    static void set_embedder_request_headers_for_navigation(Utf16String navigation_id, Vector<HTTP::Header>);
+
     void navigate_to_a_javascript_url_from_ui_process(URL::URL const&, HistoryHandlingBehavior, URL::Origin const& initiator_origin, NavigationSourceSnapshot const&, UserNavigationInvolvement, ContentSecurityPolicy::Directives::Directive::NavigationType csp_navigation_type, Utf16String navigation_id);
     void navigate_to_a_fragment(URL::URL const&, HistoryHandlingBehavior, UserNavigationInvolvement, GC::Ptr<DOM::Element> source_element, Optional<StorageSerializationRecord> navigation_api_state, Utf16String navigation_id, GC::Ptr<NavigationAPIMethodTracker> api_method_tracker, Optional<URL::Origin> initiator_origin);
     void deliver_posted_message_from_another_process(MessageDescriptor);

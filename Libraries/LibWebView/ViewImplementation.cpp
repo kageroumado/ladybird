@@ -612,6 +612,20 @@ void ViewImplementation::load(URL::URL const& url, Web::Bindings::NavigationHist
     load(traversable().prepare_navigation(url, {}, history_handling));
 }
 
+void ViewImplementation::load(URL::URL const& url, Vector<HTTP::Header> embedder_request_headers)
+{
+    auto navigation = traversable().prepare_navigation(url, {}, Web::Bindings::NavigationHistoryBehavior::Auto);
+    m_embedder_request_headers = EmbedderRequestHeaders { navigation.navigation_id, move(embedder_request_headers) };
+    load(move(navigation));
+}
+
+Optional<Vector<HTTP::Header>> ViewImplementation::take_embedder_request_headers(Utf16String const& navigation_id)
+{
+    if (!m_embedder_request_headers.has_value() || m_embedder_request_headers->navigation_id != navigation_id)
+        return {};
+    return m_embedder_request_headers.release_value().headers;
+}
+
 // A navigation a page asked the browser's UI to start for it — a link opened with a middle-click, e.g. — whose
 // source is still that page.
 void ViewImplementation::load(Web::HTML::PreparedNavigationDescriptor navigation)

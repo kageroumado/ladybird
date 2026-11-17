@@ -244,6 +244,7 @@ endpoint HubServer
     view_enqueue_drag_event(u64 view_id, u64 input_id, Web::DragEvent event) =|
     view_enqueue_pinch_event(u64 view_id, Web::PinchEvent event) =|
     view_load(u64 view_id, URL::URL url, Web::Bindings::NavigationHistoryBehavior history_behavior) =|
+    view_load_with_headers(u64 view_id, URL::URL url, Vector<HTTP::Header> headers) =|
     view_load_html(u64 view_id, ByteString html) =|
     view_find_in_page(u64 view_id, Utf16String query, AK::CaseSensitivity case_sensitivity, bool highlight_all_matches) =|
     view_set_window_position(u64 view_id, Gfx::IntPoint position) =|

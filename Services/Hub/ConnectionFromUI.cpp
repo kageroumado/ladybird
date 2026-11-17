@@ -445,14 +445,25 @@ void ConnectionFromUI::view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bi
         view->save_screenshot(*bitmap.bitmap());
 }
 
-void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture)
+void ConnectionFromUI::set_embedder_scripts(String scripts_json)
+{
+    Application::the().set_embedder_scripts(move(scripts_json));
+}
+
+void ConnectionFromUI::view_embedder_message_reply(u64 view_id, u64 message_id, Optional<String> value_json, Optional<String> error)
+{
+    if (auto* view = find_view(view_id))
+        view->did_get_embedder_message_reply(message_id, move(value_json), move(error));
+}
+
+void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String source, Optional<String> world, bool user_gesture)
 {
     auto* view = find_view(view_id);
     if (!view || !view->has_traversable()) {
         async_view_did_evaluate_script(view_id, request_id, {}, "The view is gone"_string);
         return;
     }
-    view->evaluate_script(source, user_gesture, [this, view_id, request_id](Optional<String> result_json, Optional<String> error) {
+    view->evaluate_script(source, world, user_gesture, [this, view_id, request_id](Optional<String> result_json, Optional<String> error) {
         async_view_did_evaluate_script(view_id, request_id, move(result_json), move(error));
     });
 }

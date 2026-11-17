@@ -253,6 +253,7 @@ private:
     virtual void did_cut_selected_text(u64 request_id, ByteString selection) override;
     virtual void did_execute_js_console_input(DebuggerValue result) override;
     virtual void did_evaluate_script(u64 request_id, Optional<String> result_json, Optional<String> error) override;
+    virtual void did_post_embedder_message(u64 message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame) override;
     virtual void did_output_js_console_message(ConsoleOutput console_output) override;
     virtual void did_block_resource(URL::URL url, String kind) override;
     virtual void did_start_network_request(u64 request_id, URL::URL url, ByteString method, Vector<HTTP::Header> request_headers, ByteBuffer request_body, Optional<String> initiator_type, String referrer_policy, bool is_navigation_request, Web::Fetch::Infrastructure::RequestPriority priority) override;

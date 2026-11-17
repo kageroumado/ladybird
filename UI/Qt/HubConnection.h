@@ -88,6 +88,7 @@ private:
     virtual void view_request_navigation(u64, u64, URL::URL, bool, Web::HTML::UserNavigationInvolvement, Optional<URL::Origin>) override { }
     virtual void view_navigation_response(u64, Vector<URL::URL>, Optional<u16>, Optional<String>) override { }
     virtual void download_started_by_view(u64, u64) override { }
+    virtual void view_embedder_message(u64, u64, Optional<String>, String, String, URL::URL, bool) override { }
     virtual void view_close_preflight_finished(u64 view_id, u64 request_id, bool may_close) override;
     virtual void view_page_dumps(u64 view_id, u64 request_id, Optional<String> dumps) override;
     virtual void platform_features_description(u64 request_id, ByteString description) override;

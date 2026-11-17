@@ -42,6 +42,7 @@ public:
 
     void did_get_answer(u64 answer_id, bool answer);
     void set_ui_decides_navigations(bool);
+    void did_get_embedder_message_reply(u64 message_id, Optional<String> value_json, Optional<String> error);
     void did_get_permission_answer(u64 answer_id, Web::Permissions::PromptOutcome);
 
     Gfx::IntSize screen_size() const;
@@ -95,6 +96,8 @@ private:
     // What the view waits to hear from the user, through the UI.
     HashMap<u64, Function<void(bool)>> m_pending_answers;
     bool m_ui_decides_navigations { false };
+    HashMap<u64, Function<void(Optional<String>, Optional<String>)>> m_pending_embedder_message_replies;
+    u64 m_next_embedder_message_id { 1 };
     HashMap<u64, WebView::PermissionPromptCallback> m_pending_permission_answers;
     u64 m_next_answer_id { 1 };
 };

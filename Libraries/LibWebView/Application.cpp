@@ -2906,6 +2906,19 @@ void Application::set_scripting_enabled(bool enabled)
     send_debug_switch_to_every_view("scripting"sv, enabled);
 }
 
+void Application::set_embedder_scripts(String scripts_json)
+{
+    m_embedder_scripts_json = move(scripts_json);
+    ViewImplementation::for_each_view([&](ViewImplementation& view) {
+        if (view.has_traversable()) {
+            view.traversable().for_each_hosting_page([&](WebContentPage& page) {
+                page.async_set_embedder_scripts(m_embedder_scripts_json);
+            });
+        }
+        return IterationDecision::Continue;
+    });
+}
+
 void Application::set_blocks_pop_ups(bool blocks)
 {
     m_blocks_pop_ups = blocks;
@@ -2937,6 +2950,8 @@ void Application::apply_view_options(Badge<ViewImplementation>, ViewImplementati
     view.set_preferred_motion(m_motion);
 
     apply_content_blocking_policy(page);
+    if (!m_embedder_scripts_json.is_empty())
+        page.async_set_embedder_scripts(m_embedder_scripts_json);
 
     page.async_debug_request("set-line-box-borders"sv, m_shows_line_box_borders ? "on"sv : "off"sv);
     page.async_debug_request("set-caret-hit-test-debug-overlay"sv, m_shows_caret_hit_test_debug_overlay ? "on"sv : "off"sv);

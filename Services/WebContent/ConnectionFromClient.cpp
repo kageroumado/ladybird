@@ -76,6 +76,7 @@
 #include <LibWeb/HTML/LocalTraversableNavigable.h>
 #include <LibWeb/HTML/NavigableContainer.h>
 #include <LibWeb/HTML/RemoteNavigable.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
 #include <LibWeb/HTML/Storage.h>
@@ -3676,14 +3677,28 @@ void ConnectionFromClient::run_javascript(Web::PageId page_id, String js_source)
         page->run_javascript(js_source);
 }
 
-void ConnectionFromClient::evaluate_script(Web::PageId page_id, u64 request_id, String source, bool user_gesture)
+void ConnectionFromClient::evaluate_script(Web::PageId page_id, u64 request_id, String source, Optional<String> world, bool user_gesture)
 {
     auto page = this->page(page_id);
     if (!page.has_value()) {
         async_did_evaluate_script(page_id, request_id, {}, "The page is gone"_string);
         return;
     }
-    page->evaluate_script(request_id, source, user_gesture);
+    page->evaluate_script(request_id, source, world, user_gesture);
+}
+
+void ConnectionFromClient::set_embedder_scripts(Web::PageId page_id, String scripts_json)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value())
+        return;
+    auto json = JsonValue::from_string(scripts_json);
+    page->page().set_embedder_scripts(json.is_error() ? Vector<Web::HTML::EmbedderScript> {} : Web::HTML::parse_embedder_scripts(json.value()));
+}
+
+void ConnectionFromClient::embedder_message_reply(Web::PageId, u64 message_id, Optional<String> value_json, Optional<String> error)
+{
+    Web::HTML::settle_embedder_message(message_id, value_json, error);
 }
 
 void ConnectionFromClient::did_open_dialog_in_another_process(Web::PageId page_id, Web::Page::PendingDialog dialog, Utf16String message)

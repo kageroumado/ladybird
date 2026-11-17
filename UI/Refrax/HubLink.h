@@ -70,6 +70,7 @@ private:
     virtual void view_present_backing_store(u64 view_id, u64 page_id, i32 bitmap_id, Gfx::IntSize size, double device_pixel_ratio) override;
     virtual void view_did_take_frame_snapshot(u64 view_id, u64 request_id, Optional<Gfx::ShareableBitmap> snapshot) override;
     virtual void view_did_evaluate_script(u64 view_id, u64 request_id, Optional<String> result_json, Optional<String> error) override;
+    virtual void view_embedder_message(u64 view_id, u64 message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame) override;
 
     virtual void view_finish_handling_key_event(u64 view_id, u64 input_id, Web::KeyEvent event) override;
     virtual void view_release_input(u64 view_id, u64 input_id) override;

@@ -71,6 +71,7 @@
 #include <LibWeb/HTML/Parser/HTMLParser.h>
 #include <LibWeb/HTML/RemoteNavigable.h>
 #include <LibWeb/HTML/RemoteWindow.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
@@ -359,6 +360,20 @@ EnvironmentSettingsObject& Window::relevant_settings_object() const
     return Bindings::principal_host_defined_environment_settings_object(principal_realm());
 }
 
+EmbedderWorlds& Window::embedder_worlds()
+{
+    if (!m_embedder_worlds)
+        m_embedder_worlds = GC::Heap::the().allocate<EmbedderWorlds>();
+    return *m_embedder_worlds;
+}
+
+void Window::detach_embedder_worlds()
+{
+    forget_embedder_messages_of(*this);
+    if (m_embedder_worlds)
+        m_embedder_worlds->detach();
+}
+
 void Window::visit_edges(JS::Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);
@@ -370,6 +385,7 @@ void Window::visit_edges(JS::Cell::Visitor& visitor)
     visitor.visit(m_screen);
     visitor.visit(m_location);
     visitor.visit(m_navigator);
+    visitor.visit(m_embedder_worlds);
     visitor.visit(m_navigation);
     visitor.visit(m_animation_frame_callback_driver);
     visitor.visit(m_idle_request_callbacks);

@@ -396,6 +396,39 @@ void HubLink::view_did_evaluate_script(u64 view_id, u64 request_id, Optional<Str
     m_host.send("evaluated"sv, move(fields));
 }
 
+void HubLink::view_embedder_message(u64 view_id, u64 message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page) {
+        async_view_embedder_message_reply(view_id, message_id, {}, "The page is gone"_string);
+        return;
+    }
+
+    // NB: The world is the one the engine ran the script in, never one the script names.
+    JsonObject world_json;
+    if (world.has_value()) {
+        JsonObject isolated;
+        isolated.set("name"sv, *world);
+        world_json.set("isolated"sv, move(isolated));
+    } else {
+        world_json.set("page"sv, JsonObject {});
+    }
+
+    JsonObject message;
+    message.set("channel"sv, move(channel));
+    message.set("world"sv, move(world_json));
+    auto body = JsonValue::from_string(body_json);
+    message.set("body"sv, body.is_error() ? JsonValue {} : body.release_value());
+    message.set("frameURL"sv, frame_url.serialize());
+    message.set("isMainFrame"sv, is_main_frame);
+
+    JsonObject fields;
+    fields.set("page"sv, page->id);
+    fields.set("id"sv, message_id);
+    fields.set("message"sv, move(message));
+    m_host.send("scriptMessage"sv, move(fields));
+}
+
 void HubLink::view_finish_handling_key_event(u64 view_id, u64 input_id, Web::KeyEvent)
 {
     // The page left the key alone, so it is Refrax's to act on, as a menu shortcut for instance.

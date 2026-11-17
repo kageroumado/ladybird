@@ -205,6 +205,7 @@
 #include <LibWeb/HTML/RadioButtonGroupRegistry.h>
 #include <LibWeb/HTML/RemoteNavigable.h>
 #include <LibWeb/HTML/SanitizerConfiguration.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Agent.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
@@ -6368,6 +6369,10 @@ void Document::destroy()
     // 2. Abort document.
     abort();
 
+    // NB: The wrappers of the embedder's worlds go before the heap may collect the window they wrap.
+    if (auto window = this->window())
+        window->detach_embedder_worlds();
+
     m_page->notifications_document_destroyed(*this);
     stop_compositor_animation_timers();
 
@@ -8295,6 +8300,10 @@ void Document::update_for_history_step_application(NonnullRefPtr<HTML::SessionHi
                 WebDriver::BiDi::document_is_ready_for_scripts(*this);
             }
         }
+
+        // AD-HOC: The embedder's document-start scripts run once the document is active in its navigable, before any
+        //         script of the document itself.
+        HTML::run_embedder_scripts(*this, HTML::EmbedderScript::InjectionTime::DocumentStart);
 
         // 3. If scrollingBlockedInNewDocument is false, try to scroll to the fragment for document.
         if (!scrolling_blocked_in_new_document)

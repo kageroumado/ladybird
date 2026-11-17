@@ -153,6 +153,8 @@ private:
     void handle_evaluate(Page&, JsonObject const&);
     void handle_snapshot(Page&, JsonObject const&);
     void handle_answer(Page&, JsonObject const&);
+    void handle_policy(JsonObject const& update);
+    void handle_script_reply(Page&, JsonObject const&);
     void handle_geometry(Page&, JsonObject const&);
     void handle_mouse(Page&, JsonObject const&);
     void handle_key(Page&, JsonObject const&);
@@ -194,6 +196,8 @@ private:
     ByteString m_storage_directory;
     Vector<String> m_languages;
     Core::AnonymousBuffer m_system_theme;
+    // The scripts Refrax injects, as the JSON array of its policy.
+    String m_scripts_json;
     u64 m_next_request_id { 1 };
     u64 m_next_input_id { 1 };
     u64 m_next_download_id { 1 };

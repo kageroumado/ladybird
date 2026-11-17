@@ -241,6 +241,9 @@ endpoint HubClient
     app_open_new_window(Vector<URL::URL> urls) =|
     view_selected_text(u64 view_id, u64 request_id, Optional<ByteString> text) =|
     view_did_evaluate_script(u64 view_id, u64 request_id, Optional<String> result_json, Optional<String> error) =|
+    // A script of the UI's posted on one of its channels. Sent to a UI that decides navigations, and answered with
+    // view_embedder_message_reply.
+    view_embedder_message(u64 view_id, u64 embedder_message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame) =|
     view_close_preflight_finished(u64 view_id, u64 request_id, bool may_close) =|
     view_page_dumps(u64 view_id, u64 request_id, Optional<String> dumps) =|
     platform_features_description(u64 request_id, ByteString description) =|

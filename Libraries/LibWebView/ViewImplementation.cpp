@@ -2774,7 +2774,7 @@ void ViewImplementation::run_javascript(String const& js_source)
     page().async_run_javascript(js_source);
 }
 
-void ViewImplementation::evaluate_script(String const& source, bool user_gesture, OnScriptEvaluated on_evaluated)
+void ViewImplementation::evaluate_script(String const& source, Optional<String> const& world, bool user_gesture, OnScriptEvaluated on_evaluated)
 {
     auto page = has_traversable() ? traversable().display_page() : nullptr;
     if (!page || !page->is_open()) {
@@ -2787,7 +2787,7 @@ void ViewImplementation::evaluate_script(String const& source, bool user_gesture
         page->give_user_activation();
     auto request_id = m_next_script_evaluation_id++;
     m_pending_script_evaluations.set(request_id, move(on_evaluated));
-    page->async_evaluate_script(request_id, source, user_gesture);
+    page->async_evaluate_script(request_id, source, world, user_gesture);
 }
 
 void ViewImplementation::did_evaluate_script(Badge<WebContentPage>, u64 request_id, Optional<String> result_json, Optional<String> error)

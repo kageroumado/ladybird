@@ -168,8 +168,19 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         on_navigation_policy_request = nullptr;
         on_navigation_response = nullptr;
         on_page_started_download = nullptr;
+        on_embedder_message = nullptr;
         return;
     }
+    on_embedder_message = [this](EmbedderMessage message, Function<void(Optional<String>, Optional<String>)> reply) {
+        auto* ui = ConnectionFromUI::the();
+        if (!ui) {
+            reply({}, "The embedder is gone"_string);
+            return;
+        }
+        auto message_id = m_next_embedder_message_id++;
+        m_pending_embedder_message_replies.set(message_id, move(reply));
+        ui->async_view_embedder_message(view_id(), message_id, message.world, message.channel, message.body_json, message.frame_url, message.is_main_frame);
+    };
     on_page_started_download = [this](u64 download_id) {
         if (auto* ui = ConnectionFromUI::the())
             ui->async_download_started_by_view(download_id, view_id());
@@ -188,6 +199,12 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         m_pending_answers.set(answer_id, move(on_complete));
         ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.user_involvement, request.initiator_origin);
     };
+}
+
+void View::did_get_embedder_message_reply(u64 message_id, Optional<String> value_json, Optional<String> error)
+{
+    if (auto reply = m_pending_embedder_message_replies.take(message_id); reply.has_value())
+        (*reply)(move(value_json), move(error));
 }
 
 void View::did_get_answer(u64 answer_id, bool answer)

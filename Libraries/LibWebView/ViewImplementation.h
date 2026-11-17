@@ -496,7 +496,7 @@ public:
     void run_javascript(String const&);
     // Runs the source in the tab's main document. The embedder gets its value as JSON, or what it threw.
     using OnScriptEvaluated = Function<void(Optional<String> result_json, Optional<String> error)>;
-    void evaluate_script(String const& source, bool user_gesture, OnScriptEvaluated);
+    void evaluate_script(String const& source, Optional<String> const& world, bool user_gesture, OnScriptEvaluated);
     void did_evaluate_script(Badge<WebContentPage>, u64 request_id, Optional<String> result_json, Optional<String> error);
     void js_console_input(String const&);
     void exit_fullscreen();
@@ -660,6 +660,16 @@ public:
         Optional<String> network_error;
     };
     Function<void(NavigationResponse const&)> on_navigation_response;
+    // A script of the embedder posted a message on one of its channels. The answer settles the script's promise.
+    struct EmbedderMessage {
+        // The embedder's world the script runs in, or none for the page's own.
+        Optional<String> world;
+        String channel;
+        String body_json;
+        URL::URL frame_url;
+        bool is_main_frame { false };
+    };
+    Function<void(EmbedderMessage, Function<void(Optional<String> value_json, Optional<String> error)> reply)> on_embedder_message;
     // A page of the tab started the download with this number in the file downloader.
     Function<void(u64 download_id)> on_page_started_download;
     // Whether the page asking for the view that on_new_web_view is making had the user's activation as it asked.

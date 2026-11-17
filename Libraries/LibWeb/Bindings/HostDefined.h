@@ -44,6 +44,10 @@ protected:
     virtual void visit_edges(Cell::Visitor&) override;
 };
 
+// The [[HostDefined]] of a realm that an embedder's world has over a window: its own intrinsics and wrapper world, and
+// the window's own realm as its principal one.
+WEB_API GC::Ref<HostDefined> create_host_defined_for_embedder_world(GC::Ref<Intrinsics>, GC::Ref<WrapperWorld>, GC::Ref<JS::Realm> principal_realm);
+
 // LibWeb is the only producer of a realm's [[HostDefined]] field, and it always stores a HostDefined there.
 [[nodiscard]] inline HostDefined& host_defined_of(JS::Realm& realm)
 {

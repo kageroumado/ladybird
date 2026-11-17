@@ -138,7 +138,8 @@ public:
     void did_execute_js_console_input(WebView::DebuggerValue const&);
     ErrorOr<WebView::DebuggerObjectProperties> console_object_properties(u64 object_id);
     void run_javascript(StringView js_source);
-    void evaluate_script(u64 request_id, String const& source, bool user_gesture);
+    void evaluate_script(u64 request_id, String const& source, Optional<String> const& world, bool user_gesture);
+    virtual void page_did_post_embedder_message(u64 message_id, Optional<String> const& world, String const& channel, String const& body_json, URL::URL const& frame_url, bool is_main_frame) override;
     void finish_evaluating_script(u64 request_id, JS::Realm&, JS::Value);
     void did_output_js_console_message(WebView::ConsoleOutput);
 

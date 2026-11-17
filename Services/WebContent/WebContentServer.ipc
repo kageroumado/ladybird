@@ -200,7 +200,12 @@ endpoint WebContentServer routed by Web::PageId page_id
     run_javascript(Web::PageId page_id, String js_source) =|
     // Runs the source as a classic script in the page's main document and answers did_evaluate_script with its value
     // as JSON, once a promise it returns has settled.
-    evaluate_script(Web::PageId page_id, u64 request_id, String source, bool user_gesture) =|
+    // The world is one of the embedder's, or else the page's own.
+    evaluate_script(Web::PageId page_id, u64 request_id, String source, Optional<String> world, bool user_gesture) =|
+    // The scripts the embedder runs in the page's documents, as the JSON array of the engine contract's policy.
+    set_embedder_scripts(Web::PageId page_id, String scripts_json) =|
+    // The embedder's answer to did_post_embedder_message.
+    embedder_message_reply(Web::PageId page_id, u64 embedder_message_id, Optional<String> value_json, Optional<String> error) =|
 
     list_style_sheets(Web::PageId page_id) =|
     request_style_sheet_source(Web::PageId page_id, Web::CSS::StyleSheetIdentifier identifier) =|

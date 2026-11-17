@@ -125,6 +125,10 @@ public:
     virtual Optional<URL::Origin> extract_an_origin() const override { return window_or_worker_global_scope_extract_an_origin(); }
 
     Page& page();
+
+    // The embedder's worlds over this window, each a realm of its own.
+    EmbedderWorlds& embedder_worlds();
+    void detach_embedder_worlds();
     Page const& page() const;
 
     // https://html.spec.whatwg.org/multipage/window-object.html#concept-document-window
@@ -360,6 +364,7 @@ private:
 
     GC::Ptr<CSS::Screen> m_screen;
     GC::Ptr<Navigator> m_navigator;
+    GC::Ptr<EmbedderWorlds> m_embedder_worlds;
     GC::Ptr<Location> m_location;
     GC::Ptr<CloseWatcherManager> m_close_watcher_manager;
     GC::Ptr<CookieStore::CookieStore> m_cookie_store;

@@ -52,6 +52,7 @@
 #include <LibWeb/HTML/RemoteNavigable.h>
 #include <LibWeb/HTML/Scripting/Agent.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/RemoteEnvironmentSettings.h>
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
@@ -2741,23 +2742,27 @@ void PageClient::finish_evaluating_script(u64 request_id, JS::Realm& realm, JS::
     client().async_did_evaluate_script(m_id, request_id, text.has_value() ? text->to_utf8() : "null"_string, {});
 }
 
-void PageClient::evaluate_script(u64 request_id, String const& source, bool user_gesture)
+void PageClient::page_did_post_embedder_message(u64 message_id, Optional<String> const& world, String const& channel, String const& body_json, URL::URL const& frame_url, bool is_main_frame)
+{
+    client().async_did_post_embedder_message(m_id, message_id, world, channel, body_json, frame_url, is_main_frame);
+}
+
+void PageClient::evaluate_script(u64 request_id, String const& source, Optional<String> const& world, bool user_gesture)
 {
     auto active_document = page().local_traversable()->active_document();
-    if (!active_document) {
+    if (!active_document || !active_document->window()) {
         client().async_did_evaluate_script(m_id, request_id, {}, "The page has no document"_string);
         return;
     }
-
-    auto& settings = active_document->relevant_settings_object();
-    auto& realm = settings.realm();
-    auto& vm = realm.vm();
+    auto& window = *active_document->window();
 
     if (user_gesture)
         Web::HTML::Window::run_activation_notification_steps(*active_document);
 
-    auto script = Web::HTML::ClassicScript::create("(evaluate_script)", Utf16String::from_utf8(source), settings, settings.api_base_url());
-    auto completion = script->run(Web::HTML::ClassicScript::RethrowErrors::Yes);
+    // NB: A script of the embedder runs in the world it names, whether or not the page's own scripts may run.
+    auto& realm = Web::HTML::realm_for_embedder_world(window, world);
+    auto& vm = realm.vm();
+    auto completion = Web::HTML::run_script_of_embedder(window, world, Utf16String::from_utf8(source), "(evaluate_script)"sv);
 
     Web::HTML::TemporaryExecutionContext execution_context { realm, Web::HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
 

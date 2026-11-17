@@ -60,6 +60,7 @@
 #include <LibWeb/HTML/PolicyContainers.h>
 #include <LibWeb/HTML/PreloadEntry.h>
 #include <LibWeb/HTML/SanitizerConfiguration.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/HTML/Scripting/ExceptionReporter.h>
 #include <LibWeb/HTML/Scripting/SimilarOriginWindowAgent.h>
@@ -896,6 +897,9 @@ void HTMLParserEndState::advance_to_dom_content_loaded_phase()
 
         if (Core::StatsLog::the())
             log_document_stats_event(*document, "DOMContentLoaded"sv);
+
+        // AD-HOC: The embedder's document-end scripts see the whole document, before the page hears that it is there.
+        HTML::run_embedder_scripts(*document, HTML::EmbedderScript::InjectionTime::DocumentEnd);
 
         // 2. Fire an event named DOMContentLoaded at the Document object, with its bubbles attribute initialized to true.
         auto content_loaded_event = DOM::Event::create(

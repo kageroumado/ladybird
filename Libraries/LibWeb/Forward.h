@@ -838,6 +838,7 @@ class VisibilityStateEntry;
 class Window;
 class WindowEnvironmentSettingsObject;
 class WindowProxy;
+class EmbedderWorlds;
 class Worker;
 class WorkerAgentParent;
 class WorkerDebugConsoleClient;

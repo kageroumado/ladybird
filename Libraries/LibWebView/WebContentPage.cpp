@@ -1321,6 +1321,20 @@ void WebContentPage::did_cut_selected_text(u64 request_id, ByteString selection)
     view().did_cut_selected_text({}, request_id, move(selection));
 }
 
+void WebContentPage::did_post_embedder_message(u64 message_id, Optional<String> world, String channel, String body_json, URL::URL frame_url, bool is_main_frame)
+{
+    // NB: The answer goes back to the page that asked, which can have closed by then.
+    auto reply = [page = NonnullRefPtr<WebContentPage>(*this), message_id](Optional<String> value_json, Optional<String> error) {
+        if (page->is_open())
+            page->async_embedder_message_reply(message_id, move(value_json), move(error));
+    };
+    if (!view().on_embedder_message) {
+        reply({}, "The embedder takes no messages"_string);
+        return;
+    }
+    view().on_embedder_message({ move(world), move(channel), move(body_json), move(frame_url), is_main_frame }, move(reply));
+}
+
 void WebContentPage::did_evaluate_script(u64 request_id, Optional<String> result_json, Optional<String> error)
 {
     view().did_evaluate_script({}, request_id, move(result_json), move(error));

@@ -53,6 +53,7 @@
 #include <LibWeb/HTML/NavigationSourceSnapshot.h>
 #include <LibWeb/HTML/PreparedNavigationDescriptor.h>
 #include <LibWeb/HTML/SameDocumentNavigationEntry.h>
+#include <LibWeb/HTML/Scripting/EmbedderScripts.h>
 #include <LibWeb/HTML/Scripting/ScriptRegistry.h>
 #include <LibWeb/HTML/SessionHistoryEntry.h>
 #include <LibWeb/HTML/StructuredSerialize.h>
@@ -243,6 +244,10 @@ public:
 
     bool is_scripting_enabled() const { return m_is_scripting_enabled; }
     void set_is_scripting_enabled(bool b) { m_is_scripting_enabled = b; }
+
+    // The scripts the embedder runs in the page's documents.
+    Vector<HTML::EmbedderScript> const& embedder_scripts() const { return m_embedder_scripts; }
+    void set_embedder_scripts(Vector<HTML::EmbedderScript> scripts) { m_embedder_scripts = move(scripts); }
 
     bool should_block_pop_ups() const { return m_should_block_pop_ups; }
     void set_should_block_pop_ups(bool b) { m_should_block_pop_ups = b; }
@@ -582,6 +587,7 @@ private:
 
     bool m_is_scripting_enabled { true };
     bool m_should_block_pop_ups { true };
+    Vector<HTML::EmbedderScript> m_embedder_scripts;
     bool m_enable_autoscroll { true };
     bool m_enable_primary_paste { true };
     u64 m_wheel_event_listener_state_generation { 0 };
@@ -868,6 +874,8 @@ public:
     virtual void page_did_enter_tooltip_area(ByteString const&) { }
     virtual void page_did_leave_tooltip_area() { }
     virtual void page_did_change_favicon(Gfx::Bitmap const&) { }
+    // A script posted to the embedder on one of the channels of its world, the page's own when no world is named.
+    virtual void page_did_post_embedder_message([[maybe_unused]] u64 message_id, [[maybe_unused]] Optional<String> const& world, [[maybe_unused]] String const& channel, [[maybe_unused]] String const& body_json, [[maybe_unused]] URL::URL const& frame_url, [[maybe_unused]] bool is_main_frame) { }
     virtual void page_did_request_alert(Utf16String const&) { }
     virtual void page_did_request_before_unload(String const&) { }
     virtual void page_did_request_confirm(Utf16String const&) { }

@@ -25,6 +25,11 @@ HostDefined::HostDefined(GC::Ref<Intrinsics> intrinsics, GC::Ref<WrapperWorld> w
 
 HostDefined::~HostDefined() = default;
 
+GC::Ref<HostDefined> create_host_defined_for_embedder_world(GC::Ref<Intrinsics> intrinsics, GC::Ref<WrapperWorld> wrapper_world, GC::Ref<JS::Realm> principal_realm)
+{
+    return principal_realm->heap().allocate<HostDefined>(intrinsics, wrapper_world, principal_realm);
+}
+
 void HostDefined::visit_edges(Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);

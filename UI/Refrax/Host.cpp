@@ -137,6 +137,11 @@ void Host::handle_message(String const& name, JsonObject const& fields)
         return handle_close_page(fields);
     if (name == "removeProfile"sv)
         return handle_remove_profile(fields);
+    if (name == "policy"sv) {
+        if (auto update = fields.get_object("update"sv); update.has_value())
+            handle_policy(*update);
+        return;
+    }
     if (name == "clipboardText"sv) {
         auto profile = fields.get_string("profile"sv);
         auto id = fields.get_u64("id"sv);
@@ -163,6 +168,8 @@ void Host::handle_message(String const& name, JsonObject const& fields)
         handle_snapshot(**page, fields);
     } else if (name == "answer"sv) {
         handle_answer(**page, fields);
+    } else if (name == "scriptReply"sv) {
+        handle_script_reply(**page, fields);
     } else if (name == "geometry"sv) {
         handle_geometry(**page, fields);
     } else if (name == "mouse"sv) {
@@ -274,6 +281,8 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
     auto hub = TRY(HubLink::launch(*this, key, move(arguments), ui_info()));
     // Refrax decides which windows a page may open and where its downloads go.
     hub->async_set_blocks_pop_ups(false);
+    if (!m_scripts_json.is_empty())
+        hub->async_set_embedder_scripts(m_scripts_json);
     hub->async_set_download_staging_directory(download_staging_directory(key));
     m_hubs.set(key, hub);
     return hub;
@@ -691,13 +700,56 @@ void Host::page_did_show_frame(Page& page)
         take_snapshot(page, id);
 }
 
+// The name of the isolated world that the contract's `world` names, or none for the page's own.
+static Optional<String> world_name_from_contract(Optional<JsonObject const&> world)
+{
+    if (!world.has_value())
+        return {};
+    auto isolated = world->get_object("isolated"sv);
+    if (!isolated.has_value())
+        return {};
+    auto name = isolated->get_string("name"sv);
+    if (!name.has_value() || name->is_empty())
+        return {};
+    return *name;
+}
+
+void Host::handle_policy(JsonObject const& update)
+{
+    // The scripts Refrax injects go to every Hub, and to the ones started later.
+    if (auto scripts = update.get_object("scripts"sv); scripts.has_value()) {
+        auto list = scripts->get_array("scripts"sv);
+        m_scripts_json = list.has_value() ? list->serialized() : "[]"_string;
+        for (auto& hub : m_hubs)
+            hub.value->async_set_embedder_scripts(m_scripts_json);
+    }
+}
+
+void Host::handle_script_reply(Page& page, JsonObject const& fields)
+{
+    auto id = fields.get_u64("id"sv);
+    auto reply = fields.get_object("reply"sv);
+    if (!id.has_value() || !reply.has_value())
+        return;
+    if (auto error = reply->get_object("error"sv); error.has_value()) {
+        page.hub->async_view_embedder_message_reply(page.view_id, *id, {}, error->get_string("message"sv).value_or("The message was refused"_string));
+        return;
+    }
+    auto value_json = "null"_string;
+    if (auto value = reply->get_object("value"sv); value.has_value()) {
+        if (auto inner = value->get("value"sv); inner.has_value())
+            value_json = inner->serialized();
+    }
+    page.hub->async_view_embedder_message_reply(page.view_id, *id, move(value_json), {});
+}
+
 void Host::handle_evaluate(Page& page, JsonObject const& fields)
 {
     auto id = fields.get_u64("id"sv);
     auto request = fields.get_object("request"sv);
     if (!id.has_value() || !request.has_value())
         return;
-    page.hub->async_view_evaluate_script(page.view_id, *id, request->get_string("source"sv).value_or({}), request->get_bool("userGesture"sv).value_or(false));
+    page.hub->async_view_evaluate_script(page.view_id, *id, request->get_string("source"sv).value_or({}), world_name_from_contract(request->get_object("world"sv)), request->get_bool("userGesture"sv).value_or(false));
 }
 
 void Host::handle_snapshot(Page& page, JsonObject const& fields)

@@ -179,7 +179,11 @@ endpoint HubServer
     view_file_picker_closed(u64 view_id, Vector<Web::HTML::SelectedFile> selected_files) =|
     view_save_screenshot(u64 view_id, Gfx::ShareableBitmap bitmap) =|
     view_request_selected_text(u64 view_id, u64 request_id) =|
-    view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture) =|
+    // The world is one of the UI's, or else the page's own.
+    view_evaluate_script(u64 view_id, u64 request_id, String source, Optional<String> world, bool user_gesture) =|
+    // The scripts the UI runs in every page's documents, as the JSON array of Refrax's engine contract.
+    set_embedder_scripts(String scripts_json) =|
+    view_embedder_message_reply(u64 view_id, u64 embedder_message_id, Optional<String> value_json, Optional<String> error) =|
     // The UI then answers view_request_navigation for each navigation of the view's top-level document.
     view_set_decides_navigations(u64 view_id, bool decides_navigations) =|
     view_request_close_preflight(u64 view_id, u64 request_id) =|

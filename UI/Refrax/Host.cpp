@@ -771,12 +771,9 @@ void Host::handle_answer(Page& page, JsonObject const& fields)
         break;
     }
     case PendingRequest::Kind::Permission:
-        // NB: Refrax keeps every permission decision itself, so the engine is told about this one request. The grant of
-        //     a notification is the exception: Notification.permission reads the engine's own record of it.
-        hub.async_view_answer_permission_request(page.view_id, pending->answer_id,
-            !accepted ? Web::Permissions::PromptOutcome::Block
-                      : pending->grant_is_kept ? Web::Permissions::PromptOutcome::AllowAlways
-                                               : Web::Permissions::PromptOutcome::AllowOnce);
+        // NB: Refrax keeps every permission decision itself, so the engine is only ever told about this one request,
+        //     and keeps no grant that Refrax could not take back.
+        hub.async_view_answer_permission_request(page.view_id, pending->answer_id, accepted ? Web::Permissions::PromptOutcome::AllowOnce : Web::Permissions::PromptOutcome::Block);
         break;
     }
 }

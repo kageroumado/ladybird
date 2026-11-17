@@ -34,8 +34,6 @@ struct PendingRequest {
     Kind kind;
     // The Hub's own number for the question, where it has one.
     u64 answer_id { 0 };
-    // A permission that the page reads back as granted only once the grant is kept, as for notifications.
-    bool grant_is_kept { false };
 };
 
 // What the host keeps of a page that Refrax shows: the Hub's view behind it, and what the contract's events are

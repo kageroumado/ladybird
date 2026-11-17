@@ -558,8 +558,7 @@ void HubLink::view_request_permission(u64 view_id, u64 answer_id, WebView::Permi
     JsonObject fields;
     fields.set("kind"sv, kind);
     fields.set("origin"sv, request.top_level_origin.serialize());
-    auto grant_is_kept = request.name == Web::Permissions::PermissionName::Notifications;
-    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Permission, .answer_id = answer_id, .grant_is_kept = grant_is_kept }, "permission"sv, move(fields));
+    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Permission, .answer_id = answer_id }, "permission"sv, move(fields));
 }
 
 void HubLink::view_selected_text(u64, u64, Optional<ByteString> text)

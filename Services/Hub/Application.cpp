@@ -11,6 +11,8 @@
 #include <Hub/ConnectionFromUI.h>
 #include <Hub/Proxies.h>
 #include <LibCore/ArgsParser.h>
+#include <LibCore/Directory.h>
+#include <LibWebCommon/Loader/DownloadFilename.h>
 #include <LibCore/EventLoop.h>
 #include <LibIPC/Decoder.h>
 #include <LibWebView/WebContentPage.h>
@@ -188,6 +190,16 @@ void Application::open_navigation_in_new_window(Web::HTML::PreparedNavigationDes
 {
     if (auto* ui = ConnectionFromUI::the())
         ui->async_app_open_navigation_in_new_window(move(navigation), is_private);
+}
+
+ErrorOr<LexicalPath> Application::default_path_for_downloaded_file(ByteString const& file) const
+{
+    if (!m_download_staging_directory.has_value())
+        return WebView::Application::default_path_for_downloaded_file(file);
+
+    TRY(Core::Directory::create(*m_download_staging_directory, Core::Directory::CreateDirectories::Yes));
+    auto name = Web::sanitize_suggested_download_filename(file);
+    return LexicalPath::join(*m_download_staging_directory, ByteString::formatted("{}-{}", m_next_staged_download_number++, name));
 }
 
 NonnullRefPtr<Core::Promise<ByteString>> Application::ask_user_for_download_path(ByteString const& file) const

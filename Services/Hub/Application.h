@@ -70,6 +70,8 @@ public:
     void did_read_clipboard_text(u64 request_id, Utf16String);
     void did_read_clipboard_item(u64 request_id, Web::Clipboard::SystemClipboardItem);
     void did_get_download_path(u64 request_id, Optional<ByteString>);
+    void set_download_staging_directory(ByteString directory) { m_download_staging_directory = move(directory); }
+    virtual ErrorOr<LexicalPath> default_path_for_downloaded_file(ByteString const& file) const override;
 
 private:
     explicit Application(ApplicationHost*);
@@ -134,6 +136,8 @@ private:
     mutable HashMap<u64, Function<void(Utf16String)>> m_pending_clipboard_text_reads;
     mutable HashMap<u64, Function<void(Web::Clipboard::SystemClipboardItem)>> m_pending_clipboard_item_reads;
     mutable HashMap<u64, NonnullRefPtr<Core::Promise<ByteString>>> m_pending_download_paths;
+    Optional<ByteString> m_download_staging_directory;
+    mutable u64 m_next_staged_download_number { 1 };
     mutable HashMap<u64, WebView::ExternalURLHandlerCallback> m_pending_external_url_handlers;
     mutable HashMap<u64, Function<void(bool)>> m_pending_external_url_launches;
     struct NewTabSource {

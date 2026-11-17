@@ -216,6 +216,14 @@ void HubLink::view_top_level_navigation_commit(u64 view_id)
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page)
         return;
+    // A search belongs to the document it ran in.
+    if (exchange(page->find_is_active, false)) {
+        JsonObject no_matches;
+        no_matches.set("matches"sv, 0);
+        no_matches.set("activeMatch"sv, 0);
+        no_matches.set("isFinal"sv, true);
+        m_host.emit_event(*page, "findResultChanged"sv, move(no_matches));
+    }
     if (page->navigation_failed)
         return;
     // NB: The Hub pushes the view's state ahead of each of its messages, so the state holds the committed URL.
@@ -265,6 +273,10 @@ void HubLink::view_find_in_page(u64 view_id, size_t current_match_index, Optiona
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page)
         return;
+    if (page->find_results_to_skip > 0) {
+        page->find_results_to_skip--;
+        return;
+    }
     auto matches = total_match_count.value_or(0);
     JsonObject fields;
     fields.set("matches"sv, static_cast<u64>(matches));
@@ -470,13 +482,44 @@ void HubLink::view_request_dismiss_dialog(u64 view_id)
     }
 }
 
+void HubLink::view_open_new_view(u64 view_id, u64 new_view_id, Hub::ViewState, Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints, bool has_user_activation)
+{
+    auto disposition = hints.popup ? "popup"sv : activate_tab == Web::HTML::ActivateTab::Yes ? "foregroundTab"sv : "backgroundTab"sv;
+    m_host.popup_was_requested(*this, view_id, new_view_id, disposition, has_user_activation);
+}
+
+void HubLink::app_open_url_in_new_tab(URL::URL url, Web::HTML::ActivateTab activate_tab, Optional<u64> source_view_id, WebView::IsPrivate)
+{
+    // The user asked for the link in a tab of its own, as with a click of the middle button.
+    auto* page = source_view_id.has_value() ? m_host.page_for_view(*this, *source_view_id) : nullptr;
+    if (!page)
+        return;
+    auto fields = url_fields(url);
+    fields.set("disposition"sv, activate_tab == Web::HTML::ActivateTab::Yes ? "foregroundTab"sv : "backgroundTab"sv);
+    fields.set("userGesture"sv, true);
+    fields.set("isNewWindowRequest"sv, false);
+    m_host.emit_request(*page, { .kind = PendingRequest::Kind::OpenURL }, "openURL"sv, move(fields));
+}
+
+void HubLink::download_added(Hub::DownloadState download)
+{
+    m_host.download_was_added(*this, download);
+}
+
+void HubLink::download_updated(Hub::DownloadState download)
+{
+    m_host.download_was_updated(*this, download);
+}
+
 void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin)
 {
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page) {
-        async_view_answer(view_id, answer_id, true);
+        // NB: A window that a page opened is Refrax's to open, so the view made for it navigates nowhere.
+        async_view_answer(view_id, answer_id, !m_host.popup_did_start_navigating(*this, view_id, url));
         return;
     }
+    m_host.note_page_started_navigating(*page);
     auto kind = "other"sv;
     if (is_form_submission)
         kind = "formSubmission"sv;

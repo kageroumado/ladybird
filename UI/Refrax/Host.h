@@ -27,6 +27,9 @@ struct PendingRequest {
         BeforeUnload,
         Permission,
         Navigation,
+        // Refrax opens the URL itself, so its answer changes nothing here.
+        OpenURL,
+        Download,
     };
     Kind kind;
     // The Hub's own number for the question, where it has one.
@@ -71,6 +74,34 @@ struct Page {
     // The Compositor has shown a frame of the page, so there is one to take a snapshot of.
     bool has_frame { false };
     Vector<u64> snapshots_awaiting_frame {};
+
+    // The search under way, which a find for the next match continues.
+    bool find_is_active { false };
+    size_t find_results_to_skip { 0 };
+    String find_text {};
+};
+
+// A view the Hub made for a page that asked for a new window. Refrax opens the URL itself, so the view only lives
+// until its first navigation names that URL.
+struct PendingPopup {
+    NonnullRefPtr<HubLink> hub;
+    u64 view_id { 0 };
+    u64 opener_page_id { 0 };
+    StringView disposition;
+    bool has_user_activation { false };
+};
+
+// A download that the Hub writes into the staging directory until Refrax says where the file goes.
+struct StagedDownload {
+    // The number Refrax knows the download by.
+    u64 id { 0 };
+    NonnullRefPtr<HubLink> hub;
+    u64 hub_download_id { 0 };
+    u64 page_id { 0 };
+    ByteString staged_path;
+    Optional<ByteString> destination {};
+    bool is_complete { false };
+    u64 reported_size { 0 };
 };
 
 class Host {
@@ -94,6 +125,14 @@ public:
     void emit_media_changed(Page const&);
 
     void page_did_show_frame(Page&);
+
+    void popup_was_requested(HubLink&, u64 opener_view_id, u64 new_view_id, StringView disposition, bool has_user_activation);
+    // Whether the navigation was a pending popup's, which then became Refrax's to open.
+    bool popup_did_start_navigating(HubLink&, u64 view_id, URL::URL const&);
+
+    void download_was_added(HubLink&, Hub::DownloadState const&);
+    void download_was_updated(HubLink&, Hub::DownloadState const&);
+    void note_page_started_navigating(Page const& page) { m_page_of_latest_navigation = page.id; }
     void hub_died(HubLink&);
 
     // Writes a frame's pixels to a file under the engine's storage and returns its path.
@@ -122,10 +161,18 @@ private:
     Hub::UIInfo ui_info() const;
     void close_page(Page&);
     void cancel_pending_dialogs(Page&);
+    void start_finding(Page&, JsonObject const& query);
+    void stop_finding(Page&);
+    StagedDownload* staged_download(u64 id);
+    void place_download_if_ready(StagedDownload&);
+    void forget_download(u64 id);
+    ByteString download_staging_directory(String const& profile_key) const;
     void take_snapshot(Page&, u64 id);
 
     // How long a snapshot waits for a page that has shown nothing yet.
     static constexpr auto FIRST_FRAME_WAIT_LIMIT = AK::Duration::from_seconds(3);
+    // How long a window that a page opened may take to start navigating before it is taken to open nothing.
+    static constexpr auto POPUP_NAVIGATION_WAIT_LIMIT = AK::Duration::from_seconds(5);
 
     NonnullOwnPtr<Wire> m_wire;
     HashMap<u64, NonnullOwnPtr<Page>> m_pages;
@@ -136,6 +183,11 @@ private:
     Core::AnonymousBuffer m_system_theme;
     u64 m_next_request_id { 1 };
     u64 m_next_input_id { 1 };
+    u64 m_next_download_id { 1 };
+    Vector<PendingPopup> m_pending_popups;
+    Vector<StagedDownload> m_downloads;
+    // A download names no page, so it is taken to be of the page that navigated last.
+    u64 m_page_of_latest_navigation { 0 };
     bool m_started { false };
 };
 

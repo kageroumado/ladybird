@@ -272,6 +272,9 @@ ErrorOr<NonnullRefPtr<HubLink>> Host::hub_for_profile(JsonObject const& profile)
     }
 
     auto hub = TRY(HubLink::launch(*this, key, move(arguments), ui_info()));
+    // Refrax decides which windows a page may open and where its downloads go.
+    hub->async_set_blocks_pop_ups(false);
+    hub->async_set_download_staging_directory(download_staging_directory(key));
     m_hubs.set(key, hub);
     return hub;
 }
@@ -338,6 +341,18 @@ void Host::handle_make_page(JsonObject const& fields)
 
 void Host::close_page(Page& page)
 {
+    // A download that Refrax has yet to place has no one left to ask.
+    Vector<u64> downloads_of_page;
+    for (auto const& download : m_downloads) {
+        if (download.page_id == page.id && !download.destination.has_value())
+            downloads_of_page.append(download.id);
+    }
+    for (auto id : downloads_of_page) {
+        auto* download = staged_download(id);
+        download->hub->async_cancel_download(download->hub_download_id);
+        (void)FileSystem::remove(download->staged_path, FileSystem::RecursionMode::Disallowed);
+        forget_download(id);
+    }
     page.hub->async_destroy_view(page.view_id);
     m_pages.remove(page.id);
 }
@@ -364,6 +379,9 @@ void Host::handle_command(Page& page, JsonObject const& command)
         //     navigation that Refrax starts.
         if (name.is_one_of("load"sv, "goBack"sv, "goForward"sv, "reload"sv))
             cancel_pending_dialogs(page);
+
+        if (name.is_one_of("load"sv, "reload"sv))
+            note_page_started_navigating(page);
 
         if (name == "load"sv) {
             auto request = fields.get_object("request"sv);
@@ -400,20 +418,18 @@ void Host::handle_command(Page& page, JsonObject const& command)
             if (wants_muted != (page.state.page_mute_state == Web::HTML::MuteState::Muted))
                 hub.async_view_toggle_page_mute_state(view_id);
         } else if (name == "find"sv) {
-            auto query = fields.get_object("query"sv);
-            if (!query.has_value())
-                return;
-            if (query->get_bool("findNext"sv).value_or(false)) {
-                if (query->get_bool("forward"sv).value_or(true))
-                    hub.async_view_find_in_page_next_match(view_id);
-                else
-                    hub.async_view_find_in_page_previous_match(view_id);
-                return;
-            }
-            auto case_sensitivity = query->get_bool("matchCase"sv).value_or(false) ? CaseSensitivity::CaseSensitive : CaseSensitivity::CaseInsensitive;
-            hub.async_view_find_in_page(view_id, Utf16String::from_utf8(query->get_string("text"sv).value_or({})), case_sensitivity, true);
+            if (auto query = fields.get_object("query"sv); query.has_value())
+                start_finding(page, *query);
         } else if (name == "stopFinding"sv) {
-            hub.async_view_find_in_page_end(view_id);
+            stop_finding(page);
+        } else if (name == "cancelDownload"sv) {
+            if (auto id = fields.get_u64("id"sv); id.has_value()) {
+                if (auto* download = staged_download(*id)) {
+                    download->hub->async_cancel_download(download->hub_download_id);
+                    (void)FileSystem::remove(download->staged_path, FileSystem::RecursionMode::Disallowed);
+                    forget_download(*id);
+                }
+            }
         } else if (name == "setVisibility"sv) {
             auto hidden = fields.get_string("visibility"sv).value_or({}) == "hidden"sv;
             hub.async_view_set_system_visibility_state(view_id, hidden ? Web::HTML::VisibilityState::Hidden : Web::HTML::VisibilityState::Visible);
@@ -425,6 +441,208 @@ void Host::handle_command(Page& page, JsonObject const& command)
                 hub.async_notification_closed(*id, true);
         }
     });
+}
+
+void Host::stop_finding(Page& page)
+{
+    page.find_is_active = false;
+    page.hub->async_view_find_in_page_end(page.view_id);
+    // NB: The engine keeps the search it ended, and would start the next one from the match it left selected. A search
+    //     for nothing forgets it, and its result of no matches is none of Refrax's.
+    page.find_results_to_skip++;
+    page.hub->async_view_find_in_page(page.view_id, Utf16String {}, CaseSensitivity::CaseInsensitive, false);
+}
+
+void Host::start_finding(Page& page, JsonObject const& query)
+{
+    auto& hub = *page.hub;
+    auto text = query.get_string("text"sv).value_or({});
+
+    // An empty search finds nothing and ends the one under way.
+    if (text.is_empty()) {
+        stop_finding(page);
+        JsonObject fields;
+        fields.set("matches"sv, 0);
+        fields.set("activeMatch"sv, 0);
+        fields.set("isFinal"sv, true);
+        emit_event(page, "findResultChanged"sv, move(fields));
+        return;
+    }
+
+    // NB: A search that was stopped is over, so asking for its next match starts it again from the first.
+    if (query.get_bool("findNext"sv).value_or(false) && page.find_is_active && page.find_text == text) {
+        if (query.get_bool("forward"sv).value_or(true))
+            hub.async_view_find_in_page_next_match(page.view_id);
+        else
+            hub.async_view_find_in_page_previous_match(page.view_id);
+        return;
+    }
+
+    page.find_is_active = true;
+    page.find_text = text;
+    auto case_sensitivity = query.get_bool("matchCase"sv).value_or(false) ? CaseSensitivity::CaseSensitive : CaseSensitivity::CaseInsensitive;
+    hub.async_view_find_in_page(page.view_id, Utf16String::from_utf8(text), case_sensitivity, true);
+}
+
+void Host::popup_was_requested(HubLink& hub, u64 opener_view_id, u64 new_view_id, StringView disposition, bool has_user_activation)
+{
+    auto* opener = page_for_view(hub, opener_view_id);
+    if (!opener) {
+        hub.async_destroy_view(new_view_id);
+        return;
+    }
+    m_pending_popups.append({ .hub = hub, .view_id = new_view_id, .opener_page_id = opener->id, .disposition = disposition, .has_user_activation = has_user_activation });
+
+    // A window opened without a URL never navigates. It has nothing for Refrax to open, and goes after a while.
+    Core::Timer::create_single_shot(POPUP_NAVIGATION_WAIT_LIMIT, [this, hub = NonnullRefPtr<HubLink> { hub }, new_view_id] {
+        if (m_pending_popups.remove_first_matching([&](auto const& popup) { return popup.hub.ptr() == hub.ptr() && popup.view_id == new_view_id; }))
+            hub->async_destroy_view(new_view_id);
+    })->start();
+}
+
+bool Host::popup_did_start_navigating(HubLink& hub, u64 view_id, URL::URL const& url)
+{
+    auto index = m_pending_popups.find_first_index_if([&](auto const& popup) { return popup.hub.ptr() == &hub && popup.view_id == view_id; });
+    if (!index.has_value())
+        return false;
+    auto popup = m_pending_popups.take(*index);
+    hub.async_destroy_view(view_id);
+
+    auto opener = m_pages.get(popup.opener_page_id);
+    if (!opener.has_value())
+        return true;
+    JsonObject fields;
+    fields.set("url"sv, url.serialize());
+    fields.set("disposition"sv, popup.disposition);
+    fields.set("userGesture"sv, popup.has_user_activation);
+    fields.set("isNewWindowRequest"sv, true);
+    emit_request(**opener, { .kind = PendingRequest::Kind::OpenURL }, "openURL"sv, move(fields));
+    return true;
+}
+
+ByteString Host::download_staging_directory(String const& profile_key) const
+{
+    return LexicalPath::join(m_storage_directory, "Downloads"sv, profile_key).string();
+}
+
+StagedDownload* Host::staged_download(u64 id)
+{
+    for (auto& download : m_downloads) {
+        if (download.id == id)
+            return &download;
+    }
+    return nullptr;
+}
+
+void Host::forget_download(u64 id)
+{
+    m_downloads.remove_first_matching([&](auto const& download) { return download.id == id; });
+}
+
+void Host::download_was_added(HubLink& hub, Hub::DownloadState const& state)
+{
+    // Only the downloads staged for Refrax are its to place.
+    if (!state.destination.starts_with(download_staging_directory(hub.profile_key())))
+        return;
+
+    // NB: The Hub names no page for a download. It is the page that navigated last, where that one is of this Hub.
+    Page* page = nullptr;
+    if (auto latest = m_pages.get(m_page_of_latest_navigation); latest.has_value() && (*latest)->hub.ptr() == &hub)
+        page = *latest;
+    if (!page) {
+        for (auto& entry : m_pages) {
+            if (entry.value->hub.ptr() == &hub) {
+                page = entry.value.ptr();
+                break;
+            }
+        }
+    }
+    if (!page) {
+        hub.async_cancel_download(state.id);
+        (void)FileSystem::remove(state.destination, FileSystem::RecursionMode::Disallowed);
+        return;
+    }
+
+    auto id = m_next_download_id++;
+    m_downloads.append({ .id = id, .hub = hub, .hub_download_id = state.id, .page_id = page->id, .staged_path = state.destination });
+
+    // The staged file's name is the suggested one after the download's number in the staging directory.
+    LexicalPath staged_path { state.destination };
+    auto staged_name = staged_path.basename();
+    auto suggested_name = staged_name.find('-').map([&](auto index) { return staged_name.substring_view(index + 1); }).value_or(staged_name);
+
+    JsonObject fields;
+    fields.set("id"sv, id);
+    fields.set("url"sv, state.url.serialize());
+    fields.set("suggestedFilename"sv, suggested_name);
+    if (state.total_size.has_value())
+        fields.set("totalBytes"sv, *state.total_size);
+    emit_request(*page, { .kind = PendingRequest::Kind::Download, .answer_id = id }, "download"sv, move(fields));
+
+    download_was_updated(hub, state);
+}
+
+void Host::download_was_updated(HubLink& hub, Hub::DownloadState const& state)
+{
+    auto index = m_downloads.find_first_index_if([&](auto const& download) { return download.hub.ptr() == &hub && download.hub_download_id == state.id; });
+    if (!index.has_value())
+        return;
+    auto& download = m_downloads[*index];
+    auto page = m_pages.get(download.page_id);
+
+    using Status = WebView::FileDownloader::DownloadStatus;
+    switch (state.status) {
+    case Status::InProgress:
+    case Status::Paused:
+        if (page.has_value() && state.downloaded_size != download.reported_size) {
+            download.reported_size = state.downloaded_size;
+            JsonObject fields;
+            fields.set("id"sv, download.id);
+            fields.set("receivedBytes"sv, state.downloaded_size);
+            if (state.total_size.has_value())
+                fields.set("totalBytes"sv, *state.total_size);
+            emit_event(**page, "downloadProgressed"sv, move(fields));
+        }
+        break;
+    case Status::Completed:
+        download.is_complete = true;
+        place_download_if_ready(download);
+        break;
+    case Status::Canceled:
+    case Status::Failed: {
+        if (page.has_value()) {
+            JsonObject fields;
+            fields.set("id"sv, download.id);
+            fields.set("reason"sv, state.error.has_value() ? *state.error : "The download was cancelled"_string);
+            emit_event(**page, "downloadFailed"sv, move(fields));
+        }
+        (void)FileSystem::remove(download.staged_path, FileSystem::RecursionMode::Disallowed);
+        forget_download(download.id);
+        break;
+    }
+    }
+}
+
+// A download is placed once it is whole and Refrax has said where it goes, whichever comes last.
+void Host::place_download_if_ready(StagedDownload& download)
+{
+    if (!download.is_complete || !download.destination.has_value())
+        return;
+
+    auto moved = FileSystem::move_file(*download.destination, download.staged_path, FileSystem::PreserveMode::Nothing);
+    if (auto page = m_pages.get(download.page_id); page.has_value()) {
+        JsonObject fields;
+        fields.set("id"sv, download.id);
+        if (moved.is_error()) {
+            fields.set("reason"sv, MUST(String::formatted("The file could not be moved into place: {}", moved.error())));
+            emit_event(**page, "downloadFailed"sv, move(fields));
+        } else {
+            emit_event(**page, "downloadFinished"sv, move(fields));
+        }
+    }
+    if (moved.is_error())
+        (void)FileSystem::remove(download.staged_path, FileSystem::RecursionMode::Disallowed);
+    forget_download(download.id);
 }
 
 void Host::cancel_pending_dialogs(Page& page)
@@ -447,6 +665,8 @@ void Host::cancel_pending_dialogs(Page& page)
         case PendingRequest::Kind::BeforeUnload:
         case PendingRequest::Kind::Permission:
         case PendingRequest::Kind::Navigation:
+        case PendingRequest::Kind::OpenURL:
+        case PendingRequest::Kind::Download:
             break;
         }
     }
@@ -526,6 +746,26 @@ void Host::handle_answer(Page& page, JsonObject const& fields)
     case PendingRequest::Kind::Navigation:
         hub.async_view_answer(page.view_id, pending->answer_id, accepted);
         break;
+    case PendingRequest::Kind::OpenURL:
+        break;
+    case PendingRequest::Kind::Download: {
+        auto* download = staged_download(pending->answer_id);
+        if (!download)
+            break;
+        Optional<ByteString> destination;
+        if (auto save_to = answer->get_object("saveTo"sv); save_to.has_value()) {
+            if (auto url = URL::Parser::basic_parse(save_to->get_string("url"sv).value_or({})); url.has_value() && url->scheme() == "file"sv)
+                destination = url->file_path();
+        }
+        if (!destination.has_value()) {
+            // NB: The Hub reports the cancelled download, which then tells Refrax and removes the staged file.
+            hub.async_cancel_download(download->hub_download_id);
+            break;
+        }
+        download->destination = destination.release_value();
+        place_download_if_ready(*download);
+        break;
+    }
     case PendingRequest::Kind::Permission:
         // NB: Refrax keeps every permission decision itself, so the engine is only ever told about this one request.
         hub.async_view_answer_permission_request(page.view_id, pending->answer_id, accepted ? Web::Permissions::PromptOutcome::AllowOnce : Web::Permissions::PromptOutcome::Block);

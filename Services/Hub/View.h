@@ -94,6 +94,7 @@ private:
 
     // What the view waits to hear from the user, through the UI.
     HashMap<u64, Function<void(bool)>> m_pending_answers;
+    bool m_ui_decides_navigations { false };
     HashMap<u64, WebView::PermissionPromptCallback> m_pending_permission_answers;
     u64 m_next_answer_id { 1 };
 };

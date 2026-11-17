@@ -163,6 +163,7 @@ void View::set_screen_rects(ScreenRects screen_rects)
 
 void View::set_ui_decides_navigations(bool decides_navigations)
 {
+    m_ui_decides_navigations = decides_navigations;
     if (!decides_navigations) {
         on_navigation_policy_request = nullptr;
         on_navigation_response = nullptr;
@@ -272,9 +273,12 @@ void View::forward_callbacks_to_ui(bool is_tab)
 
         on_new_web_view = [this](Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints, WebView::CanonicalTraversable& traversable) {
             auto& view = Application::the().create_view(initial_state_for_related_view(), traversable);
+            // NB: The page that asked for the view navigates it at once, before the UI could ask to decide its navigations.
+            if (m_ui_decides_navigations)
+                view.set_ui_decides_navigations(true);
             if (auto* ui = ConnectionFromUI::the()) {
                 push_state_to_ui();
-                ui->async_view_open_new_view(view_id(), view.view_id(), view.current_state(), activate_tab, hints);
+                ui->async_view_open_new_view(view_id(), view.view_id(), view.current_state(), activate_tab, hints, new_web_view_request_has_user_activation());
             }
             return view.handle();
         };

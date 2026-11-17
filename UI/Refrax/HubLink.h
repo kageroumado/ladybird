@@ -83,6 +83,10 @@ private:
     virtual void view_request_permission(u64 view_id, u64 answer_id, WebView::PermissionPromptRequest request) override;
 
     virtual void view_selected_text(u64 view_id, u64 request_id, Optional<ByteString> text) override;
+    virtual void view_open_new_view(u64 view_id, u64 new_view_id, Hub::ViewState new_view_state, Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints, bool has_user_activation) override;
+    virtual void app_open_url_in_new_tab(URL::URL url, Web::HTML::ActivateTab activate_tab, Optional<u64> source_view_id, WebView::IsPrivate is_private) override;
+    virtual void download_added(Hub::DownloadState download) override;
+    virtual void download_updated(Hub::DownloadState download) override;
     virtual void app_set_clipboard_text(String text, WebView::Application::ClipboardType type) override;
     virtual void app_read_clipboard_text(u64 request_id, WebView::Application::ClipboardType type) override;
 

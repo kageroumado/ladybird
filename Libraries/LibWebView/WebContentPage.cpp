@@ -3383,6 +3383,9 @@ Messages::WebContentClient::DidRequestNewWebViewResponse WebContentPage::did_req
     if (!current_navigable.has_value())
         return { {}, {}, {}, {}, {}, {}, {}, Web::HTML::VisibilityState::Hidden, {} };
 
+    // NB: Choosing the new traversable consumes the activation, so what the page had is read before that.
+    auto had_user_activation = has_transient_user_activation();
+
     Optional<CanonicalNavigable&> picture_in_picture_navigable;
     if (hints.picture_in_picture_window.has_value()) {
         picture_in_picture_navigable = hosted_navigable(hints.picture_in_picture_window->navigable_id);
@@ -3420,6 +3423,7 @@ Messages::WebContentClient::DidRequestNewWebViewResponse WebContentPage::did_req
     if (picture_in_picture_navigable.has_value()) {
         window_handle = PictureInPictureManager::the().open_window(*this, *picture_in_picture_navigable, traversable, hints.picture_in_picture_window->video_size);
     } else if (view().on_new_web_view) {
+        view().set_new_web_view_request_has_user_activation({}, had_user_activation);
         window_handle = view().on_new_web_view(activate_tab, hints, traversable);
     }
 

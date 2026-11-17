@@ -457,6 +457,11 @@ void ConnectionFromUI::view_evaluate_script(u64 view_id, u64 request_id, String 
     });
 }
 
+void ConnectionFromUI::set_download_staging_directory(ByteString directory)
+{
+    Application::the().set_download_staging_directory(move(directory));
+}
+
 void ConnectionFromUI::view_set_zoom(u64 view_id, double zoom_level)
 {
     if (auto* view = find_view(view_id); view && view->has_traversable()) {

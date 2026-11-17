@@ -104,6 +104,7 @@ private:
     virtual void view_evaluate_script(u64 view_id, u64 request_id, String source, bool user_gesture) override;
     virtual void view_set_decides_navigations(u64 view_id, bool decides_navigations) override;
     virtual void view_set_zoom(u64 view_id, double zoom_level) override;
+    virtual void set_download_staging_directory(ByteString directory) override;
     virtual void view_request_close_preflight(u64 view_id, u64 request_id) override;
     virtual void view_request_page_dumps(u64 view_id, u64 request_id) override;
     virtual void request_platform_features_description(u64 request_id) override;

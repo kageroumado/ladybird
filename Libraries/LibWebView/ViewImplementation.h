@@ -660,6 +660,9 @@ public:
         Optional<String> network_error;
     };
     Function<void(NavigationResponse const&)> on_navigation_response;
+    // Whether the page asking for the view that on_new_web_view is making had the user's activation as it asked.
+    bool new_web_view_request_has_user_activation() const { return m_new_web_view_request_has_user_activation; }
+    void set_new_web_view_request_has_user_activation(Badge<WebContentPage>, bool has_user_activation) { m_new_web_view_request_has_user_activation = has_user_activation; }
     Function<void(Utf16String const& message)> on_request_confirm;
     Function<void(Utf16String const& message, Utf16String const& default_)> on_request_prompt;
     Function<void(Utf16String const& message)> on_request_set_prompt_text;
@@ -968,6 +971,7 @@ protected:
 
     double m_zoom_level { 1.0 };
     bool m_embedder_keeps_zoom { false };
+    bool m_new_web_view_request_has_user_activation { false };
     double m_device_pixel_ratio { 1.0 };
     Optional<u64> m_display_id;
     double m_maximum_frames_per_second { 60.0 };

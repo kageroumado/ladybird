@@ -190,7 +190,7 @@ void HubConnection::view_release_input(u64 view_id, u64 input_id)
         view->release_input(input_id);
 }
 
-void HubConnection::view_open_new_view(u64 view_id, u64 new_view_id, Hub::ViewState, Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints)
+void HubConnection::view_open_new_view(u64 view_id, u64 new_view_id, Hub::ViewState, Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints, bool)
 {
     if (auto* view = RemoteView::find(view_id); view && view->on_open_new_view)
         view->on_open_new_view(activate_tab, hints, new_view_id);

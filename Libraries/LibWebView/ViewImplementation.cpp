@@ -2781,6 +2781,10 @@ void ViewImplementation::evaluate_script(String const& source, bool user_gesture
         on_evaluated({}, "The tab has no page to run the script in"_string);
         return;
     }
+    // NB: The renderer gives the script's window activation, which this process checks before it acts on what a page
+    //     may only do with one, such as opening a window.
+    if (user_gesture)
+        page->give_user_activation();
     auto request_id = m_next_script_evaluation_id++;
     m_pending_script_evaluations.set(request_id, move(on_evaluated));
     page->async_evaluate_script(request_id, source, user_gesture);

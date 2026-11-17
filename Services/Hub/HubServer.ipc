@@ -265,6 +265,9 @@ endpoint HubServer
     view_zoom_in(u64 view_id) =|
     view_zoom_out(u64 view_id) =|
     view_reset_zoom(u64 view_id) =|
+    // Downloads go to this directory from now on, under names that start with their own number, for a UI that then
+    // moves each one to where the user wants it.
+    set_download_staging_directory(ByteString directory) =|
     // The view keeps this zoom across navigations from now on, whatever is saved for the sites it shows.
     view_set_zoom(u64 view_id, double zoom_level) =|
     view_set_display_metadata(u64 view_id, Optional<u64> display_id, double maximum_frames_per_second, bool screen_shows_high_dynamic_range) =|

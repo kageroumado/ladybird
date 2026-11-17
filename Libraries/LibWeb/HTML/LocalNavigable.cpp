@@ -181,6 +181,8 @@ struct NavigationParamsFetchStateHolder : public JS::Cell {
     Bindings::NavigationTimingType navigation_timing_type { Bindings::NavigationTimingType::Navigate };
     TargetSnapshotParams target_snapshot_params;
     Optional<Utf16String> navigation_id;
+    // The names of the headers an embedder gave the request, which are for the origin of the URL it named.
+    Vector<ByteString> embedder_header_names;
 
     // Fields extracted from entry's document_state
     Optional<URL::Origin> initiator_origin;
@@ -2556,6 +2558,14 @@ static void perform_navigation_params_fetch(JS::Realm& realm, GC::Ref<Navigation
             return;
         }
 
+        // AD-HOC: An embedder's headers were for the URL it named. They stay behind once a redirect leaves that
+        //         URL's origin.
+        if (!state_holder->embedder_header_names.is_empty() && !state_holder->location_url.value()->origin().is_same_origin(state_holder->current_url.origin())) {
+            for (auto const& name : state_holder->embedder_header_names)
+                state_holder->request->header_list()->delete_(name);
+            state_holder->embedder_header_names.clear();
+        }
+
         // 21. Set currentURL to locationURL.
         state_holder->current_url = state_holder->location_url.value().value();
 
@@ -2637,10 +2647,15 @@ static void create_navigation_params_by_fetching(
         WebDriver::BiDi::initialize_network_request(*request, navigable, navigation_id);
     request->set_referrer(document_state.request_referrer);
     request->set_referrer_policy(document_state.request_referrer_policy);
+    Vector<ByteString> embedder_header_names;
     if (navigation_id.has_value()) {
         if (auto headers = embedder_request_headers_by_navigation().take(*navigation_id); headers.has_value()) {
-            for (auto& header : *headers)
+            for (auto& header : *headers) {
+                if (!HTTP::is_header_name(header.name) || !HTTP::is_header_value(header.value))
+                    continue;
+                embedder_header_names.append(header.name);
                 request->header_list()->set(move(header));
+            }
         }
     }
     request->set_policy_container(source_snapshot_params->source_policy_container);
@@ -2849,6 +2864,7 @@ static void create_navigation_params_by_fetching(
         document_state.navigable_target_name);
     state_holder->navigable = navigable;
     state_holder->csp_navigation_type = csp_navigation_type;
+    state_holder->embedder_header_names = move(embedder_header_names);
     state_holder->navigation_timing_type = navigation_timing_type;
     state_holder->target_snapshot_params = target_snapshot_params;
     state_holder->navigation_id = move(navigation_id);

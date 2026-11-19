@@ -7,6 +7,8 @@
 #include <Hub/Application.h>
 #include <Hub/ConnectionFromUI.h>
 #include <Hub/View.h>
+#include <LibWebView/CanonicalSessionHistoryEntry.h>
+#include <LibWebView/CanonicalTraversable.h>
 #include <LibWebView/PageTranslation.h>
 
 namespace Hub {
@@ -168,6 +170,7 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         on_navigation_policy_request = nullptr;
         on_navigation_response = nullptr;
         on_page_started_download = nullptr;
+        on_page_started_drag = nullptr;
         on_embedder_message = nullptr;
         return;
     }
@@ -180,6 +183,10 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         auto message_id = m_next_embedder_message_id++;
         m_pending_embedder_message_replies.set(message_id, move(reply));
         ui->async_view_embedder_message(view_id(), message_id, message.world, message.channel, message.body_json, message.frame_url, message.is_main_frame);
+    };
+    on_page_started_drag = [this](Vector<Utf16String> const& types, Vector<Utf16String> const& values, Utf16String const& title) {
+        if (auto* ui = ConnectionFromUI::the())
+            ui->async_view_page_started_drag(view_id(), types, values, title);
     };
     on_page_started_download = [this](u64 download_id) {
         if (auto* ui = ConnectionFromUI::the())
@@ -197,8 +204,65 @@ void View::set_ui_decides_navigations(bool decides_navigations)
         }
         auto answer_id = m_next_answer_id++;
         m_pending_answers.set(answer_id, move(on_complete));
-        ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.from_hyperlink, request.user_involvement, request.initiator_origin);
+        ui->async_view_request_navigation(view_id(), answer_id, request.url, request.is_form_submission, request.from_hyperlink, request.user_involvement, request.initiator_origin, request.kind);
     };
+}
+
+void View::ask_ui_about_history_navigation(WebView::NavigationPolicyKind kind, URL::URL url, Function<void()> navigate)
+{
+    // NB: The embedder is asked about the URLs a document's own load would be asked about.
+    if (!on_navigation_policy_request || !url.scheme().is_one_of("http"sv, "https"sv, "file"sv, "data"sv, "blob"sv)) {
+        navigate();
+        return;
+    }
+    NavigationPolicyRequest request {
+        .url = move(url),
+        .kind = kind,
+        .is_form_submission = false,
+        .from_hyperlink = false,
+        .user_involvement = Web::HTML::UserNavigationInvolvement::BrowserUI,
+        .initiator_origin = {},
+    };
+    on_navigation_policy_request(move(request), [navigate = move(navigate)](bool allowed) {
+        if (allowed)
+            navigate();
+    });
+}
+
+void View::reload_once_ui_allows(WebView::BypassCache bypass_cache)
+{
+    if (!has_traversable()) {
+        reload(bypass_cache);
+        return;
+    }
+    ask_ui_about_history_navigation(WebView::NavigationPolicyKind::Reload, url(), [this, bypass_cache] {
+        reload(bypass_cache);
+        push_state_to_ui();
+    });
+}
+
+void View::traverse_the_history_once_ui_allows(i32 delta)
+{
+    Optional<URL::URL> target_url;
+    if (has_traversable()) {
+        auto const& session_history = traversable().session_history();
+        auto steps = session_history.used_steps();
+        if (auto current = steps.find_first_index(session_history.current_step()); current.has_value()) {
+            auto target = static_cast<i64>(*current) + delta;
+            if (target >= 0 && static_cast<u64>(target) < steps.size()) {
+                if (auto const* entry = session_history.get_the_target_history_entry(traversable(), steps[static_cast<size_t>(target)]))
+                    target_url = entry->url;
+            }
+        }
+    }
+    // A traversal to no entry goes nowhere, which the traversal itself finds out.
+    if (!target_url.has_value()) {
+        traverse_the_history_by_delta(delta);
+        return;
+    }
+    ask_ui_about_history_navigation(WebView::NavigationPolicyKind::BackForward, target_url.release_value(), [this, delta] {
+        traverse_the_history_by_delta(delta);
+    });
 }
 
 void View::did_get_embedder_message_reply(u64 message_id, Optional<String> value_json, Optional<String> error)

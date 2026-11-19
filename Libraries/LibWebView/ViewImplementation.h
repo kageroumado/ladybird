@@ -130,6 +130,13 @@ struct SitePermissionRow {
     bool requested_by_page { false };
 };
 
+// What starts a navigation that an embedder is asked about, where it is the browser's own history.
+enum class NavigationPolicyKind : u8 {
+    Other,
+    BackForward,
+    Reload,
+};
+
 class WEBVIEW_API ViewImplementation
     : public SettingsObserver
     , public Weakable<ViewImplementation> {
@@ -656,6 +663,7 @@ public:
     // first request, and the navigation waits for the answer.
     struct NavigationPolicyRequest {
         URL::URL url;
+        NavigationPolicyKind kind { NavigationPolicyKind::Other };
         bool is_form_submission { false };
         bool from_hyperlink { false };
         Web::HTML::UserNavigationInvolvement user_involvement { Web::HTML::UserNavigationInvolvement::None };
@@ -685,6 +693,8 @@ public:
     Function<void(EmbedderMessage, Function<void(Optional<String> value_json, Optional<String> error)> reply)> on_embedder_message;
     // A page of the tab started the download with this number in the file downloader.
     Function<void(u64 download_id)> on_page_started_download;
+    // The user began dragging something of the page's. The types and values are the text of its drag data store.
+    Function<void(Vector<Utf16String> const& types, Vector<Utf16String> const& values, Utf16String const& title)> on_page_started_drag;
     // Whether the page asking for the view that on_new_web_view is making had the user's activation as it asked.
     bool new_web_view_request_has_user_activation() const { return m_new_web_view_request_has_user_activation; }
     void set_new_web_view_request_has_user_activation(Badge<WebContentPage>, bool has_user_activation) { m_new_web_view_request_has_user_activation = has_user_activation; }

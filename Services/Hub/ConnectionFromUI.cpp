@@ -1089,7 +1089,7 @@ void ConnectionFromUI::view_set_next_history_visit_transition(u64 view_id, WebVi
 void ConnectionFromUI::view_reload(u64 view_id, WebView::BypassCache bypass_cache)
 {
     if (auto* view = find_view(view_id)) {
-        view->reload(bypass_cache);
+        view->reload_once_ui_allows(bypass_cache);
         view->push_state_to_ui();
     }
 }
@@ -1137,7 +1137,7 @@ void ConnectionFromUI::view_get_source(u64 view_id)
 void ConnectionFromUI::view_traverse_the_history_by_delta(u64 view_id, i32 delta)
 {
     if (auto* view = find_view(view_id))
-        view->traverse_the_history_by_delta(delta);
+        view->traverse_the_history_once_ui_allows(delta);
 }
 
 void ConnectionFromUI::view_translate_to(u64 view_id, String target_language)

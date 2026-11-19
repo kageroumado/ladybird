@@ -42,6 +42,10 @@ public:
 
     void did_get_answer(u64 answer_id, bool answer);
     void set_ui_decides_navigations(bool);
+    // A reload or a step through the history that the UI asked for, which the UI is asked about first where it
+    // decides navigations.
+    void reload_once_ui_allows(WebView::BypassCache);
+    void traverse_the_history_once_ui_allows(i32 delta);
     void did_get_embedder_message_reply(u64 message_id, Optional<String> value_json, Optional<String> error);
     void did_get_permission_answer(u64 answer_id, Web::Permissions::PromptOutcome);
 
@@ -83,6 +87,7 @@ private:
     virtual void did_commit_synchronized_resize(u64 token) override;
 
     void forward_callbacks_to_ui(bool is_tab);
+    void ask_ui_about_history_navigation(WebView::NavigationPolicyKind, URL::URL, Function<void()> navigate);
 
     Core::AnonymousBuffer m_system_theme;
     Optional<ScreenRects> m_screen_rects;

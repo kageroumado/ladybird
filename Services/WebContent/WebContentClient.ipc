@@ -132,6 +132,7 @@ endpoint WebContentClient routed by Web::PageId page_id
     did_middle_click_link(Web::PageId page_id, Web::HTML::PreparedNavigationDescriptor navigation, ByteString target, unsigned modifiers) =|
     did_request_external_url(Web::PageId page_id, URL::URL url, URL::Origin initiator_origin, bool has_transient_activation) =|
     did_request_context_menu(Web::PageId page_id, Web::HTML::CrossProcessId local_root_id, Gfx::IntPoint content_position, Web::ContextMenuForInputEventsTarget for_input_events_target, Optional<Utf16String> misspelled_word, Optional<u64> text_fragment_generation_id) =|
+    did_start_drag(Web::PageId page_id, Vector<Utf16String> types, Vector<Utf16String> values, Utf16String title) =|
     did_request_link_context_menu(Web::PageId page_id, Web::HTML::CrossProcessId local_root_id, Gfx::IntPoint content_position, Web::HTML::PreparedNavigationDescriptor navigation, ByteString target, unsigned modifiers, Optional<u64> text_fragment_generation_id) =|
     did_generate_text_fragment_url(Web::PageId page_id, u64 request_id, Optional<URL::URL> url) =|
     did_request_image_context_menu(Web::PageId page_id, Web::HTML::CrossProcessId local_root_id, Gfx::IntPoint content_position, Web::HTML::PreparedNavigationDescriptor navigation, ByteString target, unsigned modifiers, Optional<Gfx::ShareableBitmap> bitmap, Optional<Web::HTML::PreparedNavigationDescriptor> link_navigation, Optional<String> image_mime_type) =|

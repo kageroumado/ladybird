@@ -4307,6 +4307,8 @@ void Document::set_active_element(GC::Ptr<Element> element)
 
     set_needs_repaint(InvalidateDisplayList::PaintCommands);
 
+    page().client().page_did_change_active_element();
+
     // Tell the accessibility tree which node has the focus — once an assistive technology reads the tree. The first
     // tree it gets already marks the focused node (AccessibilityNodeData::is_focused), so staying quiet until then
     // loses nothing. Gecko, WebKit, and Blink also skip this until an assistive technology turns accessibility on:

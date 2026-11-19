@@ -110,7 +110,14 @@ void Host::apply_state(Page& page, Hub::ViewState state)
         JsonObject fields;
         fields.set("factor"sv, page.reported_zoom);
         emit_event(page, "zoomChanged"sv, move(fields));
+        // Every node's frame is in the view's points, which the zoom scales.
+        if (page.accessibility_is_wanted) {
+            page.accessibility_changes.whole_tree = true;
+            accessibility_tree_did_change(page);
+        }
     }
+
+    report_input_method(page);
 
     if (mute_state_changed)
         emit_media_changed(page);
@@ -202,6 +209,18 @@ void Host::handle_message(String const& name, JsonObject const& fields)
         handle_key(**page, fields);
     } else if (name == "edit"sv) {
         handle_edit(**page, fields);
+    } else if (name == "resizeBegin"sv) {
+        if (auto token = fields.get_u64("token"sv); token.has_value())
+            (*page)->hub->async_view_begin_synchronized_resize((*page)->view_id, *token);
+    } else if (name == "resizeCommit"sv) {
+        if (auto token = fields.get_u64("token"sv); token.has_value())
+            (*page)->hub->async_view_commit_synchronized_resize((*page)->view_id, *token);
+    } else if (name == "composition"sv) {
+        handle_composition(**page, fields);
+    } else if (name == "insertText"sv) {
+        handle_insert_text(**page, fields);
+    } else if (name == "contextMenuChoice"sv) {
+        handle_context_menu_choice(**page, fields);
     } else if (name == "focusState"sv) {
         (*page)->hub->async_view_set_has_system_focus((*page)->view_id, fields.get_bool("focused"sv).value_or(false));
     }
@@ -446,11 +465,9 @@ void Host::handle_command(Page& page, JsonObject const& command)
             else
                 hub.async_view_load_with_headers(view_id, url.release_value(), move(headers));
         } else if (name == "goBack"sv) {
-            page.awaits_history_commit = true;
-            hub.async_view_traverse_the_history_by_delta(view_id, -1);
+            go_through_history(page, -1);
         } else if (name == "goForward"sv) {
-            page.awaits_history_commit = true;
-            hub.async_view_traverse_the_history_by_delta(view_id, 1);
+            go_through_history(page, 1);
         } else if (name == "reload"sv) {
             hub.async_view_reload(view_id, fields.get_bool("fromOrigin"sv).value_or(false) ? WebView::BypassCache::Yes : WebView::BypassCache::No);
         } else if (name == "setZoom"sv) {
@@ -496,6 +513,12 @@ void Host::handle_command(Page& page, JsonObject const& command)
             }
         }
     });
+}
+
+void Host::go_through_history(Page& page, int delta)
+{
+    page.awaits_history_commit = true;
+    page.hub->async_view_traverse_the_history_by_delta(page.view_id, delta);
 }
 
 void Host::stop_finding(Page& page)
@@ -896,6 +919,51 @@ static Optional<StringView> appkit_accessibility_subrole(StringView role)
     return {};
 }
 
+JsonObject Host::accessibility_node_json(Page const& page, WebView::AccessibilityNodeData const& node) const
+{
+    JsonObject entry;
+    entry.set("id"sv, node.id);
+    entry.set("role"sv, appkit_accessibility_role(node.role));
+    // AppKit has no words of its own for a page's root, which says what WebKit's does.
+    if (node.role == "document"sv)
+        entry.set("roleDescription"sv, "HTML content"sv);
+    if (auto subrole = appkit_accessibility_subrole(node.role); subrole.has_value())
+        entry.set("subrole"sv, *subrole);
+    // A run of text is its own value, as AppKit's static text is. Every other node is named by its label.
+    if (node.role == "text leaf"sv) {
+        entry.set("value"sv, node.name);
+    } else {
+        if (!node.name.is_empty())
+            entry.set("label"sv, node.name);
+        if (node.role == "heading"sv && node.heading_level > 0)
+            entry.set("value"sv, node.heading_level);
+        else if (node.value_numeric.has_value())
+            entry.set("value"sv, *node.value_numeric);
+        else if (!node.value.is_empty())
+            entry.set("value"sv, node.value);
+    }
+    if (!node.description.is_empty())
+        entry.set("help"sv, node.description);
+    if (!node.url.is_empty())
+        entry.set("url"sv, node.url);
+    if (node.is_focused)
+        entry.set("focused"sv, true);
+    if (node.is_disabled)
+        entry.set("disabled"sv, true);
+    // NB: The engine measures in CSS pixels, which are the view's points at the zoom the page has.
+    JsonArray frame;
+    frame.must_append(node.bounds.x() * page.reported_zoom);
+    frame.must_append(node.bounds.y() * page.reported_zoom);
+    frame.must_append(node.bounds.width() * page.reported_zoom);
+    frame.must_append(node.bounds.height() * page.reported_zoom);
+    entry.set("frame"sv, move(frame));
+    JsonArray children;
+    for (auto child_id : node.child_ids)
+        children.must_append(child_id);
+    entry.set("children"sv, move(children));
+    return entry;
+}
+
 void Host::accessibility_tree_did_change(Page& page)
 {
     if (!page.accessibility_is_wanted || page.accessibility_update_is_scheduled)
@@ -907,8 +975,32 @@ void Host::accessibility_tree_did_change(Page& page)
             return;
         auto& page = **found;
         page.accessibility_update_is_scheduled = false;
+        auto changes = move(page.accessibility_changes);
+        page.accessibility_changes = {};
 
+        JsonObject message;
+        message.set("page"sv, page.id);
         JsonArray nodes;
+
+        if (!changes.whole_tree) {
+            for (auto id : changes.changed) {
+                if (auto const* node = page.accessibility.node(id))
+                    nodes.must_append(accessibility_node_json(page, *node));
+            }
+            JsonArray removed;
+            for (auto id : changes.removed) {
+                // A node that came back since is one of the tree's again.
+                if (!page.accessibility.node(id))
+                    removed.must_append(id);
+            }
+            if (nodes.is_empty() && removed.is_empty())
+                return;
+            message.set("nodes"sv, move(nodes));
+            message.set("removed"sv, move(removed));
+            send("accessibilityChanges"sv, move(message));
+            return;
+        }
+
         Vector<i64> pending;
         if (auto const* root = page.accessibility.root())
             pending.append(root->id);
@@ -917,53 +1009,9 @@ void Host::accessibility_tree_did_change(Page& page)
             auto const* node = page.accessibility.node(pending.take_last());
             if (!node)
                 continue;
-            JsonObject entry;
-            entry.set("id"sv, node->id);
-            entry.set("role"sv, appkit_accessibility_role(node->role));
-            // AppKit has no words of its own for a page's root, which says what WebKit's does.
-            if (node->role == "document"sv)
-                entry.set("roleDescription"sv, "HTML content"sv);
-            if (auto subrole = appkit_accessibility_subrole(node->role); subrole.has_value())
-                entry.set("subrole"sv, *subrole);
-            // A run of text is its own value, as AppKit's static text is. Every other node is named by its label.
-            if (node->role == "text leaf"sv) {
-                entry.set("value"sv, node->name);
-            } else {
-                if (!node->name.is_empty())
-                    entry.set("label"sv, node->name);
-                if (node->role == "heading"sv && node->heading_level > 0)
-                    entry.set("value"sv, node->heading_level);
-                else if (node->value_numeric.has_value())
-                    entry.set("value"sv, *node->value_numeric);
-                else if (!node->value.is_empty())
-                    entry.set("value"sv, node->value);
-            }
-            if (!node->description.is_empty())
-                entry.set("help"sv, node->description);
-            if (!node->url.is_empty())
-                entry.set("url"sv, node->url);
-            if (node->is_focused)
-                entry.set("focused"sv, true);
-            if (node->is_disabled)
-                entry.set("disabled"sv, true);
-            // NB: The engine measures in CSS pixels, which are the view's points at the zoom the page has.
-            JsonArray frame;
-            frame.must_append(node->bounds.x() * page.reported_zoom);
-            frame.must_append(node->bounds.y() * page.reported_zoom);
-            frame.must_append(node->bounds.width() * page.reported_zoom);
-            frame.must_append(node->bounds.height() * page.reported_zoom);
-            entry.set("frame"sv, move(frame));
-            JsonArray children;
-            for (auto child_id : node->child_ids) {
-                children.must_append(child_id);
-                pending.append(child_id);
-            }
-            entry.set("children"sv, move(children));
-            nodes.must_append(move(entry));
+            nodes.must_append(accessibility_node_json(page, *node));
+            pending.extend(node->child_ids);
         }
-
-        JsonObject message;
-        message.set("page"sv, page.id);
         if (auto const* root = page.accessibility.root())
             message.set("root"sv, root->id);
         message.set("nodes"sv, move(nodes));
@@ -1084,8 +1132,12 @@ void Host::handle_answer(Page& page, JsonObject const& fields)
         hub.async_view_prompt_closed(page.view_id, move(response));
         break;
     }
-    case PendingRequest::Kind::BeforeUnload:
     case PendingRequest::Kind::Navigation:
+        // A step through the history that Refrax turned away commits nothing.
+        if (pending->is_history_traversal && !accepted)
+            page.awaits_history_commit = false;
+        [[fallthrough]];
+    case PendingRequest::Kind::BeforeUnload:
         hub.async_view_answer(page.view_id, pending->answer_id, accepted);
         break;
     case PendingRequest::Kind::OpenURL:
@@ -1122,6 +1174,194 @@ void Host::handle_geometry(Page& page, JsonObject const& fields)
     page.size_in_points = { fields.get_i32("width"sv).value_or(page.size_in_points.width()), fields.get_i32("height"sv).value_or(page.size_in_points.height()) };
     Web::DevicePixelSize size { static_cast<int>(page.size_in_points.width() * page.scale), static_cast<int>(page.size_in_points.height() * page.scale) };
     page.hub->async_view_set_viewport(page.view_id, size, page.scale);
+    // Refrax holds its window's next frame until the page has one of this size to show with it.
+    if (auto token = fields.get_u64("token"sv); token.has_value())
+        page.hub->async_view_await_synchronized_resize_frame(page.view_id, *token, size.to_type<int>());
+}
+
+void Host::report_input_method(Page& page)
+{
+    auto const& state = page.state.input_method_state;
+    JsonObject fields;
+    fields.set("page"sv, page.id);
+    fields.set("enabled"sv, state.is_enabled);
+    fields.set("cursor"sv, state.cursor_position);
+    fields.set("anchor"sv, state.anchor_position);
+    fields.set("textBefore"sv, state.text_before_cursor.to_utf8());
+    fields.set("textAfter"sv, state.text_after_cursor.to_utf8());
+    if (state.caret_rect.has_value()) {
+        JsonArray caret;
+        caret.must_append(state.caret_rect->x().value() / page.scale);
+        caret.must_append(state.caret_rect->y().value() / page.scale);
+        caret.must_append(state.caret_rect->width().value() / page.scale);
+        caret.must_append(state.caret_rect->height().value() / page.scale);
+        fields.set("caret"sv, move(caret));
+    }
+    // NB: The Hub pushes a view's whole state for any change to it, and most changes leave the text input as it was.
+    auto serialized = fields.serialized();
+    if (page.reported_input_method == serialized)
+        return;
+    page.reported_input_method = move(serialized);
+    send("inputMethod"sv, move(fields));
+}
+
+void Host::handle_composition(Page& page, JsonObject const& fields)
+{
+    page.hub->async_view_set_marked_text_from_input_method(page.view_id, Utf16String::from_utf8(fields.get_string("text"sv).value_or({})));
+}
+
+void Host::handle_insert_text(Page& page, JsonObject const& fields)
+{
+    auto text = Utf16String::from_utf8(fields.get_string("text"sv).value_or({}));
+    page.hub->async_view_commit_text_from_input_method(page.view_id, move(text), fields.get_i32("replacementStart"sv).value_or(0), fields.get_i32("replacementLength"sv).value_or(0));
+}
+
+void Host::show_context_menu(Page& page, WebView::ContextMenuRequest const& request)
+{
+    ShownContextMenu menu { .id = m_next_request_id++ };
+    JsonArray items;
+    auto needs_separator = false;
+    auto add = [&](StringView title, Function<void()> action, bool enabled = true) {
+        if (needs_separator && !items.is_empty()) {
+            JsonObject separator;
+            separator.set("separator"sv, true);
+            items.must_append(move(separator));
+        }
+        needs_separator = false;
+        JsonObject item;
+        item.set("item"sv, menu.actions.size());
+        item.set("title"sv, title);
+        if (!enabled)
+            item.set("enabled"sv, false);
+        items.must_append(move(item));
+        menu.actions.append(move(action));
+    };
+    auto end_group = [&] { needs_separator = true; };
+
+    auto page_id = page.id;
+    auto hub = page.hub;
+    auto view_id = page.view_id;
+    // Refrax decides where a URL opens, as it does for a link clicked with a modifier.
+    auto opens = [this, page_id](URL::URL const& url, StringView disposition) {
+        return [this, page_id, url, disposition] {
+            auto page = m_pages.get(page_id);
+            if (!page.has_value())
+                return;
+            JsonObject fields;
+            fields.set("url"sv, url.serialize());
+            fields.set("disposition"sv, disposition);
+            fields.set("userGesture"sv, true);
+            fields.set("isNewWindowRequest"sv, false);
+            emit_request(**page, { .kind = PendingRequest::Kind::OpenURL }, "openURL"sv, move(fields));
+        };
+    };
+    auto copies = [this](String text) {
+        return [this, text = move(text)] {
+            JsonObject fields;
+            fields.set("text"sv, text);
+            send("clipboardWrite"sv, move(fields));
+        };
+    };
+    auto downloads = [hub, view_id](URL::URL const& url, Optional<String> image_mime_type) {
+        return [hub, view_id, url, image_mime_type = move(image_mime_type)] {
+            hub->async_view_download_url(view_id, url, false, image_mime_type);
+        };
+    };
+    auto edits = [this, page_id](StringView action) {
+        return [this, page_id, action] {
+            auto page = m_pages.get(page_id);
+            if (!page.has_value())
+                return;
+            JsonObject fields;
+            fields.set("action"sv, action);
+            handle_edit(**page, fields);
+        };
+    };
+
+    if (request.link_navigation.has_value()) {
+        auto const& url = request.link_navigation->url;
+        add("Open Link in New Tab"sv, opens(url, "backgroundTab"sv));
+        add("Open Link in New Window"sv, opens(url, "newWindow"sv));
+        add("Download Linked File"sv, downloads(url, {}));
+        add("Copy Link"sv, copies(url.serialize()));
+        end_group();
+    }
+
+    if (request.kind == WebView::ContextMenuKind::Image && request.navigation.has_value()) {
+        auto const& url = request.navigation->url;
+        add("Open Image in New Tab"sv, opens(url, "backgroundTab"sv));
+        add("Save Image"sv, downloads(url, request.image_mime_type));
+        add("Copy Image Address"sv, copies(url.serialize()));
+        end_group();
+    }
+
+    if (request.kind == WebView::ContextMenuKind::Media && request.media.has_value()) {
+        auto const& media = *request.media;
+        auto does = [hub, view_id](WebView::ContextMenuMediaAction action) {
+            return [hub, view_id, action] { hub->async_view_do_context_menu_media_action(view_id, action); };
+        };
+        add(media.is_playing ? "Pause"sv : "Play"sv, does(WebView::ContextMenuMediaAction::TogglePlay));
+        add(media.is_muted ? "Unmute"sv : "Mute"sv, does(WebView::ContextMenuMediaAction::ToggleMute));
+        add(media.has_user_agent_controls ? "Hide Controls"sv : "Show Controls"sv, does(WebView::ContextMenuMediaAction::ToggleControls));
+        add(media.is_looping ? "Stop Looping"sv : "Loop"sv, does(WebView::ContextMenuMediaAction::ToggleLoop));
+        end_group();
+        if (media.media_url.has_value()) {
+            add(media.is_video ? "Open Video in New Tab"sv : "Open Audio in New Tab"sv, opens(*media.media_url, "backgroundTab"sv));
+            add(media.is_video ? "Download Video"sv : "Download Audio"sv, downloads(*media.media_url, {}));
+            add(media.is_video ? "Copy Video Address"sv : "Copy Audio Address"sv, copies(media.media_url->serialize()));
+            end_group();
+        }
+    }
+
+    if (request.is_editable) {
+        for (auto const& guess : request.spelling_guesses) {
+            auto title = guess.to_utf8();
+            add(title, [hub, view_id, guess] { hub->async_view_replace_context_menu_misspelling(view_id, guess); });
+        }
+        end_group();
+        auto has_selection = request.selected_text.has_value() && !request.selected_text->is_empty();
+        add("Cut"sv, edits("cut"sv), has_selection);
+        add("Copy"sv, edits("copy"sv), has_selection);
+        add("Paste"sv, edits("paste"sv));
+        add("Select All"sv, edits("selectAll"sv));
+        end_group();
+    } else if (request.selected_text.has_value() && !request.selected_text->is_empty()) {
+        add("Copy"sv, copies(*request.selected_text));
+        end_group();
+    }
+
+    if (menu.actions.is_empty()) {
+        auto goes = [this, page_id](int delta) {
+            return [this, page_id, delta] {
+                if (auto page = m_pages.get(page_id); page.has_value())
+                    go_through_history(**page, delta);
+            };
+        };
+        add("Back"sv, goes(-1), page.state.can_navigate_back);
+        add("Forward"sv, goes(1), page.state.can_navigate_forward);
+        add("Reload"sv, [hub, view_id] { hub->async_view_reload(view_id, WebView::BypassCache::No); });
+    }
+
+    JsonObject fields;
+    fields.set("page"sv, page.id);
+    fields.set("id"sv, menu.id);
+    fields.set("x"sv, request.widget_position.x() / page.scale);
+    fields.set("y"sv, request.widget_position.y() / page.scale);
+    fields.set("items"sv, move(items));
+    page.context_menu = move(menu);
+    send("contextMenu"sv, move(fields));
+}
+
+void Host::handle_context_menu_choice(Page& page, JsonObject const& fields)
+{
+    // The menu is over, whichever way: only the one shown last can still be answered.
+    auto menu = move(page.context_menu);
+    page.context_menu = {};
+    if (!menu.has_value() || fields.get_u64("id"sv) != menu->id)
+        return;
+    auto item = fields.get_u64("item"sv);
+    if (item.has_value() && *item < menu->actions.size())
+        menu->actions[*item]();
 }
 
 // The wire's modifier bits: shift, control, option, command and the numeric keypad, from the lowest up.

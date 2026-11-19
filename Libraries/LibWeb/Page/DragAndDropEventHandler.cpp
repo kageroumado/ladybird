@@ -20,6 +20,7 @@
 #include <LibWeb/HTML/WindowProxy.h>
 #include <LibWeb/HighResolutionTime/TimeOrigin.h>
 #include <LibWeb/Page/DragAndDropEventHandler.h>
+#include <LibWeb/Page/Page.h>
 #include <LibWebCommon/HTML/SelectedFile.h>
 #include <LibWebCommon/MimeSniff/Resource.h>
 #include <LibWebCommon/UIEvents/KeyCode.h>
@@ -231,6 +232,21 @@ EventResult DragAndDropEventHandler::handle_drag_start(
     //            used as hints for where to put the cursor relative to the resulting image. The values are expressed
     //            as distances in CSS pixels from the left side and from the top side of the image respectively.
     //         2. The drag data store default feedback.
+    // NB: The drag runs inside the page. An embedder that carries it to other windows takes its text from here.
+    if (auto* source_element = as_if<DOM::Element>(m_source_node.ptr())) {
+        Vector<Utf16String> types;
+        Vector<Utf16String> values;
+        for (auto const& item : m_drag_data_store->item_list()) {
+            if (item.kind != HTML::DragDataStoreItem::Kind::Text)
+                continue;
+            types.append(item.type_string.to_utf16_string());
+            values.append(item.data);
+        }
+        auto title = is<HTML::HTMLImageElement>(*source_element)
+            ? source_element->get_attribute_value(HTML::AttributeNames::alt)
+            : source_element->text_content().value_or({});
+        source_element->document().page().client().page_did_start_drag(move(types), move(values), move(title));
+    }
 
     return EventResult::Handled;
 }

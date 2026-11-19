@@ -80,9 +80,13 @@ private:
     virtual void view_request_prompt(u64 view_id, Utf16String message, Utf16String default_value) override;
     virtual void view_request_before_unload(u64 view_id, u64 answer_id, String source) override;
     virtual void view_request_dismiss_dialog(u64 view_id) override;
-    virtual void view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin) override;
+    virtual void view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement user_involvement, Optional<URL::Origin> initiator_origin, WebView::NavigationPolicyKind kind) override;
     virtual void view_request_permission(u64 view_id, u64 answer_id, WebView::PermissionPromptRequest request) override;
 
+    virtual void view_request_context_menu(u64 view_id, WebView::ContextMenuRequest request) override;
+    virtual void view_page_started_drag(u64 view_id, Vector<Utf16String> types, Vector<Utf16String> values, Utf16String title) override;
+    virtual void view_did_hold_synchronized_resize_frame(u64 view_id, u64 token) override;
+    virtual void view_did_commit_synchronized_resize(u64 view_id, u64 token) override;
     virtual void view_selected_text(u64 view_id, u64 request_id, Optional<ByteString> text) override;
     virtual void view_open_new_view(u64 view_id, u64 new_view_id, Hub::ViewState new_view_state, Web::HTML::ActivateTab activate_tab, Web::HTML::WebViewHints hints, bool has_user_activation) override;
     virtual void app_open_url_in_new_tab(URL::URL url, Web::HTML::ActivateTab activate_tab, Optional<u64> source_view_id, WebView::IsPrivate is_private) override;

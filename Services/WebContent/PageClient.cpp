@@ -1310,6 +1310,25 @@ void PageClient::page_did_request_spelling_menu_action_for_testing(Web::Spelling
     client().async_did_request_spelling_menu_action_for_testing(m_id, action, guess_index);
 }
 
+void PageClient::page_did_change_active_element()
+{
+    // The element that has the focus now may take text where the last did not: the UI hears of it once the focus has
+    // settled, so that an input method composes in a field a script focused from the first key on.
+    if (!m_input_method_state_timer) {
+        m_input_method_state_timer = Core::Timer::create_single_shot(AK::Duration::from_milliseconds(0), [this] {
+            if (!m_is_closed)
+                client().update_input_method_state(m_id);
+        });
+    }
+    if (!m_input_method_state_timer->is_active())
+        m_input_method_state_timer->start();
+}
+
+void PageClient::page_did_start_drag(Vector<Utf16String> types, Vector<Utf16String> values, Utf16String title)
+{
+    client().async_did_start_drag(m_id, move(types), move(values), move(title));
+}
+
 void PageClient::page_did_request_link_context_menu(Web::HTML::CrossProcessId local_root_id, Web::CSSPixelPoint content_position, Web::HTML::PreparedNavigationDescriptor navigation, ByteString const& target, unsigned modifiers, GC::Ptr<Web::DOM::Range> selected_text_range)
 {
     auto text_fragment_generation_id = prepare_text_fragment_generation(selected_text_range);

@@ -6,7 +6,9 @@
 
 #pragma once
 
+#include <AK/Function.h>
 #include <AK/HashMap.h>
+#include <AK/HashTable.h>
 #include <AK/JsonObject.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/NonnullRefPtr.h>
@@ -36,6 +38,21 @@ struct PendingRequest {
     Kind kind;
     // The Hub's own number for the question, where it has one.
     u64 answer_id { 0 };
+    // The navigation asked about is a step through the history that Refrax started.
+    bool is_history_traversal { false };
+};
+
+// The menu that Refrax shows for a click of the secondary button, and what each of its items does once chosen.
+struct ShownContextMenu {
+    u64 id { 0 };
+    Vector<Function<void()>> actions {};
+};
+
+// What of a page's accessibility tree Refrax has yet to hear.
+struct AccessibilityChanges {
+    bool whole_tree { false };
+    HashTable<i64> changed {};
+    HashTable<i64> removed {};
 };
 
 // What the host keeps of a page that Refrax shows: the Hub's view behind it, and what the contract's events are
@@ -81,6 +98,12 @@ struct Page {
     bool accessibility_is_wanted { false };
     bool accessibility_update_is_scheduled { false };
     WebView::AccessibilityTreeManager accessibility {};
+    AccessibilityChanges accessibility_changes {};
+
+    Optional<ShownContextMenu> context_menu {};
+
+    // What Refrax was last told of the page's text input.
+    Optional<String> reported_input_method {};
 
     // The search under way, which a find for the next match continues.
     bool find_is_active { false };
@@ -146,6 +169,9 @@ public:
     void apply_state(Page&, Hub::ViewState);
     void emit_media_changed(Page const&);
 
+    // The user asked for a menu on something of the page's. Refrax shows it and names the item chosen.
+    void show_context_menu(Page&, WebView::ContextMenuRequest const&);
+
     void page_did_show_frame(Page&);
 
     void popup_was_requested(HubLink&, u64 opener_view_id, u64 new_view_id, StringView disposition, bool has_user_activation);
@@ -178,6 +204,12 @@ private:
     void handle_mouse(Page&, JsonObject const&);
     void handle_key(Page&, JsonObject const&);
     void handle_edit(Page&, JsonObject const&);
+    void handle_context_menu_choice(Page&, JsonObject const&);
+    void handle_composition(Page&, JsonObject const&);
+    void handle_insert_text(Page&, JsonObject const&);
+    void go_through_history(Page&, int delta);
+    void report_input_method(Page&);
+    JsonObject accessibility_node_json(Page const&, WebView::AccessibilityNodeData const&) const;
     void handle_remove_profile(JsonObject const&);
     void handle_shutdown();
 

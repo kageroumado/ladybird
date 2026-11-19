@@ -5438,8 +5438,11 @@ void ViewImplementation::download_url(URL::URL const& url, PromptForPath prompt_
         suggested_filename = image_filename_with_extension(move(suggested_filename), *image_mime_type);
 
     if (prompt_for_path == PromptForPath::No) {
-        if (auto download_path = Application::the().default_path_for_downloaded_file(suggested_filename); !download_path.is_error())
-            Application::the().file_downloader().download_file(is_private(), url, download_path.release_value(), FileDownloader::MayReplaceDestination::No);
+        if (auto download_path = Application::the().default_path_for_downloaded_file(suggested_filename); !download_path.is_error()) {
+            auto download_id = Application::the().file_downloader().download_file(is_private(), url, download_path.release_value(), FileDownloader::MayReplaceDestination::No);
+            if (on_page_started_download)
+                on_page_started_download(download_id);
+        }
         return;
     }
 

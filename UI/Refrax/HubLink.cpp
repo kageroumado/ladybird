@@ -142,6 +142,51 @@ void HubLink::view_state_changed(u64 view_id, Hub::ViewState state)
         m_host.apply_state(*page, move(state));
 }
 
+void HubLink::view_request_context_menu(u64 view_id, WebView::ContextMenuRequest request)
+{
+    if (auto* page = m_host.page_for_view(*this, view_id))
+        m_host.show_context_menu(*page, request);
+}
+
+void HubLink::view_page_started_drag(u64 view_id, Vector<Utf16String> types, Vector<Utf16String> values, Utf16String title)
+{
+    auto* page = m_host.page_for_view(*this, view_id);
+    if (!page || types.size() != values.size())
+        return;
+    JsonArray items;
+    for (size_t index = 0; index < types.size(); ++index) {
+        JsonObject item;
+        item.set("type"sv, types[index].to_utf8());
+        item.set("value"sv, values[index].to_utf8());
+        items.must_append(move(item));
+    }
+    JsonObject fields;
+    fields.set("page"sv, page->id);
+    fields.set("items"sv, move(items));
+    fields.set("title"sv, title.to_utf8());
+    m_host.send("dragStarted"sv, move(fields));
+}
+
+static void send_resize_step(Host& host, Page const& page, StringView name, u64 token)
+{
+    JsonObject fields;
+    fields.set("page"sv, page.id);
+    fields.set("token"sv, token);
+    host.send(name, move(fields));
+}
+
+void HubLink::view_did_hold_synchronized_resize_frame(u64 view_id, u64 token)
+{
+    if (auto* page = m_host.page_for_view(*this, view_id))
+        send_resize_step(m_host, *page, "resizeHeld"sv, token);
+}
+
+void HubLink::view_did_commit_synchronized_resize(u64 view_id, u64 token)
+{
+    if (auto* page = m_host.page_for_view(*this, view_id))
+        send_resize_step(m_host, *page, "resizeCommitted"sv, token);
+}
+
 // The contract's kind of a failure, from the words of the engine's network error.
 static StringView failure_kind(StringView error)
 {
@@ -552,7 +597,7 @@ void HubLink::download_updated(Hub::DownloadState download)
     m_host.download_was_updated(*this, download);
 }
 
-void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement, Optional<URL::Origin> initiator_origin)
+void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, bool is_form_submission, bool from_hyperlink, Web::HTML::UserNavigationInvolvement, Optional<URL::Origin> initiator_origin, WebView::NavigationPolicyKind policy_kind)
 {
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page) {
@@ -561,7 +606,11 @@ void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, 
         return;
     }
     auto kind = "other"sv;
-    if (is_form_submission)
+    if (policy_kind == WebView::NavigationPolicyKind::BackForward)
+        kind = "backForward"sv;
+    else if (policy_kind == WebView::NavigationPolicyKind::Reload)
+        kind = "reload"sv;
+    else if (is_form_submission)
         kind = "formSubmission"sv;
     else if (from_hyperlink)
         kind = "link"sv;
@@ -569,7 +618,7 @@ void HubLink::view_request_navigation(u64 view_id, u64 answer_id, URL::URL url, 
     fields.set("kind"sv, kind);
     if (initiator_origin.has_value())
         fields.set("initiatorOrigin"sv, initiator_origin->serialize());
-    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Navigation, .answer_id = answer_id }, "navigation"sv, move(fields));
+    m_host.emit_request(*page, { .kind = PendingRequest::Kind::Navigation, .answer_id = answer_id, .is_history_traversal = policy_kind == WebView::NavigationPolicyKind::BackForward }, "navigation"sv, move(fields));
 }
 
 void HubLink::view_request_permission(u64 view_id, u64 answer_id, WebView::PermissionPromptRequest request)
@@ -612,6 +661,7 @@ void HubLink::view_accessibility_tree_received(u64 view_id, u64 sequence, Vector
     if (!page)
         return;
     page->accessibility.update_tree(move(nodes), sequence);
+    page->accessibility_changes.whole_tree = true;
     m_host.accessibility_tree_did_change(*page);
 }
 
@@ -621,9 +671,18 @@ void HubLink::view_accessibility_tree_changed(u64 view_id, u64 base_sequence, u6
     if (!page || !page->accessibility_is_wanted)
         return;
     // A change that doesn't fit the tree held leaves it as it was: the whole tree comes again.
-    if (!page->accessibility.apply_delta(delta, base_sequence, sequence).has_value()) {
+    auto removed = page->accessibility.apply_delta(delta, base_sequence, sequence);
+    if (!removed.has_value()) {
         async_view_request_accessibility_tree(view_id);
         return;
+    }
+    for (auto id : *removed) {
+        page->accessibility_changes.changed.remove(id);
+        page->accessibility_changes.removed.set(id);
+    }
+    for (auto const& node : delta.changed_nodes) {
+        page->accessibility_changes.removed.remove(node.id);
+        page->accessibility_changes.changed.set(node.id);
     }
     m_host.accessibility_tree_did_change(*page);
 }
@@ -633,7 +692,11 @@ void HubLink::view_accessibility_focus_changed(u64 view_id, i64 node_id)
     auto* page = m_host.page_for_view(*this, view_id);
     if (!page || !page->accessibility_is_wanted)
         return;
+    // The node that had the focus changes with the one that gets it.
+    if (auto previous = page->accessibility.focused_node_id(); previous.has_value())
+        page->accessibility_changes.changed.set(*previous);
     page->accessibility.set_focused_node(node_id);
+    page->accessibility_changes.changed.set(node_id);
     m_host.accessibility_tree_did_change(*page);
 }
 

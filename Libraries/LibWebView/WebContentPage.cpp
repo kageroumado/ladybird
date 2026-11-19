@@ -3236,6 +3236,29 @@ void WebContentPage::did_request_page_translation_for_testing(String target_lang
     view().page_translation().translate_for_testing({}, move(target_language));
 }
 
+void WebContentPage::did_start_drag(Vector<Utf16String> types, Vector<Utf16String> values, Utf16String title)
+{
+    // NB: A page says what it drags, and an embedder puts that where other applications read it. A drag holds a few
+    //     items of text, so one that claims more is the page's mistake or its attempt at the embedder's memory.
+    static constexpr size_t MAXIMUM_DRAGGED_ITEMS = 16;
+    static constexpr size_t MAXIMUM_DRAGGED_CODE_UNITS = 1024 * 1024;
+    static constexpr size_t MAXIMUM_DRAG_TITLE_CODE_UNITS = 200;
+    if (!view().on_page_started_drag)
+        return;
+    if (types.size() != values.size() || types.size() > MAXIMUM_DRAGGED_ITEMS) {
+        client().did_misbehave("did_start_drag"sv, "the dragged items do not pair up, or are too many"sv);
+        return;
+    }
+    size_t code_units = 0;
+    for (size_t index = 0; index < types.size(); ++index)
+        code_units += types[index].length_in_code_units() + values[index].length_in_code_units();
+    if (code_units > MAXIMUM_DRAGGED_CODE_UNITS)
+        return;
+    if (title.length_in_code_units() > MAXIMUM_DRAG_TITLE_CODE_UNITS)
+        title = Utf16String::from_utf16(title.substring_view(0, MAXIMUM_DRAG_TITLE_CODE_UNITS));
+    view().on_page_started_drag(types, values, title);
+}
+
 void WebContentPage::did_request_link_context_menu(Web::HTML::CrossProcessId local_root_id, Gfx::IntPoint content_position, Web::HTML::PreparedNavigationDescriptor navigation, ByteString, unsigned, Optional<u64> text_fragment_generation_id)
 {
     auto verified_navigation = navigation_from_page(client(), move(navigation));

@@ -244,13 +244,15 @@ void View::reload_once_ui_allows(WebView::BypassCache bypass_cache)
 void View::traverse_the_history_once_ui_allows(i32 delta)
 {
     Optional<URL::URL> target_url;
+    i32 target_step = 0;
     if (has_traversable()) {
         auto const& session_history = traversable().session_history();
         auto steps = session_history.used_steps();
         if (auto current = steps.find_first_index(session_history.current_step()); current.has_value()) {
             auto target = static_cast<i64>(*current) + delta;
             if (target >= 0 && static_cast<u64>(target) < steps.size()) {
-                if (auto const* entry = session_history.get_the_target_history_entry(traversable(), steps[static_cast<size_t>(target)]))
+                target_step = steps[static_cast<size_t>(target)];
+                if (auto const* entry = session_history.get_the_target_history_entry(traversable(), target_step))
                     target_url = entry->url;
             }
         }
@@ -260,8 +262,16 @@ void View::traverse_the_history_once_ui_allows(i32 delta)
         traverse_the_history_by_delta(delta);
         return;
     }
-    ask_ui_about_history_navigation(WebView::NavigationPolicyKind::BackForward, target_url.release_value(), [this, delta] {
-        traverse_the_history_by_delta(delta);
+    // NB: The history can change while the UI decides. Its answer is for the entry it was asked about, so the step
+    //     goes to that entry, and nowhere once the entry is gone or names another URL.
+    auto asked_url = *target_url;
+    ask_ui_about_history_navigation(WebView::NavigationPolicyKind::BackForward, target_url.release_value(), [this, target_step, asked_url = move(asked_url)] {
+        if (!has_traversable())
+            return;
+        auto const* entry = traversable().session_history().get_the_target_history_entry(traversable(), target_step);
+        if (!entry || entry->url != asked_url)
+            return;
+        traverse_the_history_to_step(target_step);
     });
 }
 

@@ -3352,15 +3352,23 @@ void ConnectionFromClient::update_input_method_state(Web::PageId page_id)
                 auto text_after_length = min(value_length - cursor, maximum_input_method_surrounding_text_length);
 
                 auto const& html_element = text_control->text_control_to_html_element();
-                if (auto const* input_element = as_if<Web::HTML::HTMLInputElement>(html_element))
+                auto holds_a_secret = false;
+                if (auto const* input_element = as_if<Web::HTML::HTMLInputElement>(html_element)) {
                     is_enabled = input_element->is_mutable();
-                else if (auto const* text_area_element = as_if<Web::HTML::HTMLTextAreaElement>(html_element))
+                    holds_a_secret = input_element->type_state() == Web::HTML::HTMLInputElement::TypeAttributeState::Password;
+                } else if (auto const* text_area_element = as_if<Web::HTML::HTMLTextAreaElement>(html_element))
                     is_enabled = text_area_element->is_mutable();
 
-                cursor_position = AK::clamp_to<i32>(cursor);
-                anchor_position = AK::clamp_to<i32>(anchor);
-                text_before_cursor = Utf16String::from_utf16(value.substring_view(text_before_start, cursor - text_before_start));
-                text_after_cursor = Utf16String::from_utf16(value.substring_view(cursor, text_after_length));
+                // NB: What a password field holds stays in this process: the UI and the input method it serves hear
+                //     of no text, and compose none, so the field is typed into key by key.
+                if (holds_a_secret) {
+                    is_enabled = false;
+                } else {
+                    cursor_position = AK::clamp_to<i32>(cursor);
+                    anchor_position = AK::clamp_to<i32>(anchor);
+                    text_before_cursor = Utf16String::from_utf16(value.substring_view(text_before_start, cursor - text_before_start));
+                    text_after_cursor = Utf16String::from_utf16(value.substring_view(cursor, text_after_length));
+                }
             }
         } else if (auto focused_area = document->focused_area(); focused_area && focused_area->is_editable_or_editing_host()) {
             // The focused area is contenteditable, or a document with designMode enabled. Qt answers Qt::ImEnabled from
